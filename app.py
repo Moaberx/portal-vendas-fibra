@@ -4,64 +4,111 @@ import json
 import re
 import urllib.parse
 from datetime import datetime
-import pandas as pd
 from streamlit_local_storage import LocalStorage
 
 # ================= CONEXÃO DE DADOS =================
-# PREFERÊNCIA 41 & 42: URL ÚNICA DO GAS E DADOS REAIS
-# CORREÇÃO: O SEU LINK REAL ESTÁ AQUI
-URL_BACKEND_GOOGLE = "https://script.google.com/macros/s/AKfycbxpacnXvvIMh7tfqcH6iUmmRLF_9l4XhBBGdr0Iyl4RfqVnhtg4bv3daMN80yXgvyFS/exec"
-SENHA_DA_API = "PAP_SECRETO_2026" # PREFERÊNCIA 47: SEGURANÇA POR TOKEN
-SENHA_MESTRE_GESTAO = "102030"    # PREFERÊNCIA 49: SENHA MESTRE
+URL_BACKEND_GOOGLE = "https://script.google.com/macros/s/AKfycbyTF3qUfRvMKh5JcyxJ_rbo8fSc04n24s8y8X7wtS0nP1qVjv2nUbpQLZHmAWmpXhKJ/exec"
 
-# CORREÇÃO DO NameError: Definição da variável do link DVF TIM
-LINK_DFV_TIM = "https://app.powerbi.com/view?r=eyJrIjoiODgyZDdiMTItOTM1MS00ZGFkLTkyZTktOTg5ZmJjNjc0OTViIiwidCI6ImI1MmJhNGIzLWM0MTEtNGQxNi04Yzc2LTAwNDg5YzBhMjA1YSJ9"
+# SENHA DO PAINEL ADMINISTRATIVO
+# IMPORTANTE: não deixe a senha real aqui no código se o repositório for público.
+# No Streamlit Cloud: Settings > Secrets, adicione a linha:
+#   senha_mestre_gestao = "sua_senha_aqui"
+# O código abaixo tenta ler do secrets primeiro; se não encontrar, usa "102030" como fallback.
+try:
+    SENHA_MESTRE_GESTAO = st.secrets.get("senha_mestre_gestao", "102030")
+except Exception:
+    SENHA_MESTRE_GESTAO = "102030"
 # ====================================================
 
-# PREFERÊNCIA 3, 19: TÍTULO, TEMA PADRÃO E OPÇÃO DE ALTERNAR
-st.set_page_config(page_title="PAP FIBRA", page_icon="📶", layout="centered", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="PAP Fibra", page_icon="📶", layout="centered")
 
+# --- MEMÓRIA LOCAL E CONFIGURAÇÕES GLOBAIS ---
 local_storage = LocalStorage()
 
-if 'vendedores_dinamicos' not in st.session_state: st.session_state['vendedores_dinamicos'] = []
-if 'planos_dinamicos' not in st.session_state: st.session_state['planos_dinamicos'] = {}
-if 'operadoras_dinamicas' not in st.session_state: st.session_state['operadoras_dinamicas'] = []
+if 'historico_vendas' not in st.session_state: st.session_state['historico_vendas'] = []
+if 'historico_leads' not in st.session_state: st.session_state['historico_leads'] = []
 if 'modo_gestao_liberado' not in st.session_state: st.session_state['modo_gestao_liberado'] = False
+if 'mostrar_login_secreto' not in st.session_state: st.session_state['mostrar_login_secreto'] = False
 
-# --- FUNÇÕES DE COMUNICAÇÃO ---
-# PREFERÊNCIA 46: "MODO DEUS" CRUD DEFINITIVO NO GAS
-def chamar_api(dados_payload):
+# Configurações visuais e de catálogo (editáveis na Gestão)
+if 'config_sistema' not in st.session_state:
+    st.session_state['config_sistema'] = {
+        "titulo_app": "PAP Fibra",
+        "logo_url": "",
+        "tema_cor": "#3B82F6",  # Azul padrão
+        "pedir_mae": True, "obrigatorio_mae": False,
+        "pedir_email": True, "obrigatorio_email": True,
+        "extra1_ativo": False, "nome_extra1": "Campo Extra 1", "ob_extra1": False,
+        "extra2_ativo": False, "nome_extra2": "Campo Extra 2", "ob_extra2": False
+    }
+
+# Planos Dinâmicos Editáveis
+if 'planos_dinamicos' not in st.session_state:
+    st.session_state['planos_dinamicos'] = {
+        "NIO Fibra": {
+            "500 Mega (Residencial)": {"valor": 100.00, "detalhes": "Wi-Fi padrão"},
+            "600 Mega (Residencial)": {"valor": 109.00, "detalhes": "Wi-Fi padrão"},
+            "800 Mega (Residencial)": {"valor": 135.00, "detalhes": "Wi-Fi 6 + Globoplay"}
+        },
+        "TIM Ultrafibra": {
+            "600 Mega (PF)": {"valor": 119.99, "detalhes": "Wi-Fi grátis + Globoplay"},
+            "800 Mega (PF)": {"valor": 129.99, "detalhes": "Wi-Fi grátis + YouTube Premium"}
+        },
+        "Vivo": {"Plano Padrão": {"valor": 0.00, "detalhes": "Padrão"}},
+        "Claro": {"Plano Padrão": {"valor": 0.00, "detalhes": "Padrão"}}
+    }
+
+def carregar_memorias():
     try:
-        resp = requests.post(URL_BACKEND_GOOGLE, data=json.dumps(dados_payload), headers={"Content-Type": "application/json"}, timeout=15)
-        if resp.status_code == 200: return resp.json()
-    except Exception as e:
-        return {"status": "erro", "msg": str(e)}
-    return {"status": "erro", "msg": "Servidor fora do ar."}
+        rasc = local_storage.getItem("pap_rascunho_v5")
+        if rasc:
+            for k, v in (json.loads(rasc) if isinstance(rasc, str) else rasc).items():
+                st.session_state[k] = v
+        hist_v = local_storage.getItem("pap_hist_vendas_v5")
+        if hist_v: st.session_state['historico_vendas'] = json.loads(hist_v) if isinstance(hist_v, str) else hist_v
+        hist_l = local_storage.getItem("pap_hist_leads_v5")
+        if hist_l: st.session_state['historico_leads'] = json.loads(hist_l) if isinstance(hist_l, str) else hist_l
 
-# --- CARREGAMENTO INICIAL DE DADOS REAIS ---
-if not st.session_state.get('configs_carregadas'):
-    with st.spinner("Sincronizando com o cofre do Google..."):
-        # Payload para carregar os dados dinâmicos da planilha de uma vez
-        payload_inicial = {"acao": "carregar_inicial", "senha_api": SENHA_DA_API}
-        resposta_inicial = chamar_api(payload_inicial)
-        
-        if resposta_inicial and resposta_inicial.get('status') == 'sucesso':
-            # PREFERÊNCIA 25: VENDEDORES DINÂMICOS DA PLANILHA
-            st.session_state['vendedores_dinamicos'] = resposta_inicial.get('vendedores', ["Moabe"])
-            
-            # PREFERÊNCIA 27: OPERADORAS E PACOTES DINÂMICOS
-            st.session_state['operadoras_dinamicas'] = resposta_inicial.get('operadoras', ["TIM Ultrafibra", "NIO Fibra", "Claro", "Giga+ Fibra"])
-            
-            # PREFERÊNCIA 28: DETALHES DOS PLANOS DINÂMICOS
-            st.session_state['planos_dinamicos'] = resposta_inicial.get('planos', {})
-            st.session_state['configs_carregadas'] = True
-        else:
-            # Fallback seguro para o app não quebrar enquanto o GAS não é configurado
-            st.session_state['vendedores_dinamicos'] = ["Moabe"]
-            st.session_state['operadoras_dinamicas'] = ["TIM Ultrafibra", "NIO Fibra", "Claro", "Giga+ Fibra"]
-            st.warning("⚠️ Não foi possível carregar os dados da planilha oficial. Usando dados locais de fallback.")
+        cfg = local_storage.getItem("pap_config_sys_v5")
+        if cfg: st.session_state['config_sistema'] = json.loads(cfg) if isinstance(cfg, str) else cfg
 
-# PREFERÊNCIA 22: BUSCA CEP MÁGICA
+        pl = local_storage.getItem("pap_planos_v5")
+        if pl: st.session_state['planos_dinamicos'] = json.loads(pl) if isinstance(pl, str) else pl
+    except: pass
+
+def salvar_tudo():
+    try:
+        local_storage.setItem("pap_config_sys_v5", json.dumps(st.session_state['config_sistema']))
+        local_storage.setItem("pap_planos_v5", json.dumps(st.session_state['planos_dinamicos']))
+    except: pass
+
+def salvar_rascunho():
+    try:
+        local_storage.setItem("pap_rascunho_v5", json.dumps({k: v for k, v in st.session_state.items() if k.startswith('f_')}))
+    except: pass
+
+def limpar_rascunho():
+    try:
+        local_storage.setItem("pap_rascunho_v5", "")
+        for k in list(st.session_state.keys()):
+            if k.startswith('f_'): del st.session_state[k]
+    except: pass
+
+def add_hist_venda(d):
+    reg = {"protocolo": d['protocolo'], "nome": d['nome'].split()[0], "bairro": d['bairro'], "operadora": d['operadora'], "valor": d['valor_plano'], "data": datetime.now().strftime("%Y-%m-%d")}
+    st.session_state['historico_vendas'].insert(0, reg)
+    local_storage.setItem("pap_hist_vendas_v5", json.dumps(st.session_state['historico_vendas']))
+
+def add_hist_lead(nome, status):
+    st.session_state['historico_leads'].insert(0, {"nome": nome, "status": status, "data": datetime.now().strftime("%Y-%m-%d")})
+    local_storage.setItem("pap_hist_leads_v5", json.dumps(st.session_state['historico_leads']))
+
+# --- Helpers de mensagem (SEMPRE usar estes, nunca st.error/st.success/st.info nativos) ---
+def msg_erro(t): st.markdown(f'<div class="msg-caixa msg-erro">❌ {t}</div>', unsafe_allow_html=True)
+def msg_sucesso(t): st.markdown(f'<div class="msg-caixa msg-sucesso">✅ {t}</div>', unsafe_allow_html=True)
+def msg_info(t): st.markdown(f'<div class="msg-caixa msg-info">ℹ️ {t}</div>', unsafe_allow_html=True)
+def msg_venda_item(t): st.markdown(f'<div class="msg-caixa msg-info">🟢 {t}</div>', unsafe_allow_html=True)
+
 def buscar_cep(cep):
     cep = re.sub(r'[^0-9]', '', str(cep))
     if len(cep) == 8:
@@ -71,186 +118,263 @@ def buscar_cep(cep):
         except: pass
     return None
 
-# --- HELPERS ---
-def msg_erro(t): st.markdown(f'<div class="alerta-erro">❌ {t}</div>', unsafe_allow_html=True)
-def msg_sucesso(t): st.markdown(f'<div class="alerta-sucesso">✅ {t}</div>', unsafe_allow_html=True)
+def formatar_ficha(d, cfg):
+    f = f"""NOVA VENDA\n\nCLIENTE\n* Nome: {d['nome'].upper()}\n* CPF/CNPJ: {d['cpf']}"""
+    if cfg.get('pedir_email') and d.get('email'): f += f"\n* Email: {d['email']}"
+    if cfg.get('pedir_mae') and d.get('mae'): f += f"\n* Mãe: {d['mae'].upper()}"
+    f += f"""\n\nCONTATOS\n* WhatsApp: {d['whats1']} (Ref: {d['ultimos_digitos']})\n* Contato 2: {d['whats2'] or '---'}"""
+    f += f"""\n\nENDEREÇO\n* CEP: {d['cep']}\n* Rua: {d['rua'].upper()}, Nº {d['numero']} - {d['bairro'].upper()}\n* Ref: {d['referencia'].upper()}"""
+    f += f"""\n\nPEDIDO\n* Operadora: {d['operadora'].upper()}\n* Plano: {d['plano'].upper()}\n* Valor: R$ {d['valor_plano']:.2f}\n* Detalhes: {d['detalhes_plano']}"""
+    if cfg.get('extra1_ativo') and d.get('extra1'): f += f"\n* {cfg.get('nome_extra1')}: {d['extra1']}"
+    if cfg.get('extra2_ativo') and d.get('extra2'): f += f"\n* {cfg.get('nome_extra2')}: {d['extra2']}"
+    f += f"\n\nOBS: {d['obs']}"
+    return f
 
-# PREFERÊNCIA 31: VALIDAÇÃO CPF/CNPJ
-def validar_cpf_cnpj(doc):
-    doc = re.sub(r'[^0-9]', '', str(doc))
-    return len(doc) == 11 or len(doc) == 14
+def enviar_planilha(dados):
+    try:
+        r = requests.post(URL_BACKEND_GOOGLE, data=json.dumps(dados), headers={"Content-Type": "application/json"}, timeout=10)
+        return r.status_code == 200 and r.json().get('status') == 'sucesso'
+    except: return False
 
-# PREFERÊNCIA 32: VALIDAÇÃO WHATSAPP
-def validar_telefone(tel):
-    nums = re.sub(r'[^0-9]', '', str(tel))
-    return 10 <= len(nums) <= 11
+# --- CARREGA MEMÓRIAS ANTES DE QUALQUER RENDERIZAÇÃO ---
+# (Corrigido: isso precisa acontecer ANTES de montar o CSS, senão a cor do tema
+# e o título só aparecem corretos depois de uma interação extra do usuário.)
+if not st.session_state.get('memorias_carregadas'):
+    carregar_memorias()
+    st.session_state['memorias_carregadas'] = True
 
-# --- CSS PREMIUM (DARK MODE PADRÃO - AZUL/NÃO ROXO) ---
-# PREFERÊNCIA 4, 19, 21: TEMA ESCURO PADRÃO, CSS PREMIUM, HIDE STREAMLIT
-st.markdown("""
+# --- CSS DINÂMICO (agora já usa a config carregada corretamente) ---
+cfg = st.session_state['config_sistema']
+cor_tema = cfg.get('tema_cor', '#3B82F6')
+
+st.markdown(f"""
     <style>
-    /* Fundo absoluto e fontes */
-    .stApp { background-color: #0E1117; color: #E0E6ED; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-    
-    /* PREFERÊNCIA 8: RÓTULOS/AZUIS (NÃO ROXO) */
-    .stTextInput>label, .stSelectbox>label, .stTextArea>label { color: #3B82F6 !important; font-weight: 600; font-size: 14px; }
-    
-    /* PREFERÊNCIA 8: ENTRADAS COM BORDAS FINAS */
-    .stTextInput>div>div>input, .stSelectbox>div>div>select, .stTextArea>div>div>textarea {
-        background-color: #1A1C23 !important; 
-        color: #FFFFFF !important; 
-        border-radius: 6px !important; 
-        border: 1px solid #2D3748 !important;
-        padding: 12px !important;
-        transition: border-color 0.3s;
-    }
-    .stTextInput>div>div>input:focus, .stSelectbox>div>div>select:focus {
-        border-color: #3B82F6 !important;
-        box-shadow: none !important;
-    }
-    
-    /* Botões Padrões e Hover */
-    .stButton>button { 
-        background-color: #1F2937; 
-        color: #FFFFFF; 
-        border: 1px solid #374151;
-        border-radius: 8px; 
-        width: 100%; 
-        font-weight: 700; 
-        padding: 14px;
-        transition: all 0.2s ease-in-out;
-    }
-    .stButton>button:hover { background-color: #374151; border-color: #3B82F6; transform: translateY(-1px); }
-    
-    /* Botão WhatsApp Mágico */
-    .btn-whatsapp { 
-        display: block; width: 100%; background-color: #10B981; color: #FFFFFF !important; 
-        text-align: center; font-weight: 700; padding: 14px; border-radius: 8px; 
-        text-decoration: none; margin-top: 15px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        transition: all 0.2s;
-    }
-    .btn-whatsapp:hover { background-color: #059669; transform: translateY(-1px); }
-    
-    /* Alertas Reestilizados */
-    .alerta-erro { background:#3F1D1D; border-left: 4px solid #EF4444; color:#FECACA; padding:12px; border-radius:4px; margin-bottom:12px; font-size: 14px; font-weight: 500;}
-    .alerta-sucesso { background:#143324; border-left: 4px solid #10B981; color:#A7F3D0; padding:12px; border-radius:4px; margin-bottom:12px; font-size: 14px; font-weight: 500;}
-    
-    /* Títulos de Seção Premium */
-    h3, h4 { color: #FFFFFF !important; font-weight: 700; margin-bottom: 15px; }
-    
-    /* Esconder elementos desnecessários do Streamlit */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    .stAppHeader {visibility: hidden;}
-    [data-testid="stSidebar"] {visibility: hidden;}
+    .stApp {{ background-color: #000000; color: #FFFFFF; }}
+    h1, h2, h3, .stSubheader, label, p, span {{ color: #FFFFFF !important; font-family: sans-serif; font-weight: 500; }}
+    .legenda-obrigatorio {{ color: #9CA3AF !important; font-size: 13px; margin-bottom: 10px; }}
+
+    .stTextInput>div>div>input, .stSelectbox>div>div>select, .stTextArea>div>div>textarea {{
+        background-color: #121212 !important; color: #FFFFFF !important;
+        border-radius: 6px !important; border: 1px solid #333333 !important; padding: 10px 12px !important;
+    }}
+    textarea {{ color: #FFFFFF !important; }}
+    ul[data-baseweb="menu"] {{ background-color: #121212 !important; border: 1px solid #333333 !important; }}
+    ul[data-baseweb="menu"] li {{ background-color: #121212 !important; color: #FFFFFF !important; }}
+    div[data-baseweb="select"] > div {{ background-color: #121212 !important; border-color: #333333 !important; color: #FFFFFF !important; }}
+
+    /* Alertas nativos (fallback de segurança, caso algum st.error/success escape) */
+    div[data-testid="stAlert"] {{ background-color: #121212 !important; border: 1px solid #333333 !important; color: #FFFFFF !important; }}
+    div[data-testid="stAlert"] * {{ color: #FFFFFF !important; }}
+
+    .msg-caixa {{ border-radius: 6px; padding: 12px 16px; margin: 10px 0; font-weight: 500; }}
+    .msg-erro {{ background-color: #2A0E0E; border: 1px solid #B91C1C; color: #FECACA !important; }}
+    .msg-erro * {{ color: #FECACA !important; }}
+    .msg-sucesso {{ background-color: #0E2A17; border: 1px solid #15803D; color: #BBF7D0 !important; }}
+    .msg-sucesso * {{ color: #BBF7D0 !important; }}
+    .msg-info {{ background-color: #0A1929; border: 1px solid #1E3A8A; color: #BFDBFE !important; }}
+    .msg-info * {{ color: #BFDBFE !important; }}
+
+    .stButton>button {{
+        background-color: #1F2937; color: #FFFFFF; border: 1px solid #374151; border-radius: 6px;
+        width: 100% !important; padding: 14px; margin-top: 15px; font-weight: bold;
+    }}
+    .stButton>button:hover {{ background-color: #374151; border-color: {cor_tema}; }}
+
+    .btn-whatsapp {{
+        display: block; width: 100%; background-color: #25D366; color: #000000 !important;
+        text-align: center; font-weight: bold; padding: 14px; border-radius: 6px; text-decoration: none; margin-top: 10px;
+    }}
+    .card-metrica {{ background-color: #121212; border: 1px solid #333333; border-radius: 8px; padding: 15px; text-align: center; }}
+    .card-metrica h2 {{ margin: 0; font-size: 28px; color: {cor_tema} !important; }}
+    .card-metrica p {{ margin: 4px 0 0 0; color: #9CA3AF !important; }}
+    .enviando-caixa {{ background-color: #1F2937; border: 1px solid #374151; border-radius: 6px; padding: 12px; text-align: center; font-weight: bold; animation: pulse 1.2s infinite; }}
+    @keyframes pulse {{ 0% {{ opacity: 1; }} 50% {{ opacity: 0.5; }} 100% {{ opacity: 1; }} }}
+
+    .aviso-local {{ color: #6B7280 !important; font-size: 12px; margin-top: -5px; margin-bottom: 15px; }}
+
+    /* Botão discreto de admin */
+    .botao-admin-discreto button {{
+        background-color: transparent !important; border: none !important; color: #374151 !important;
+        width: auto !important; padding: 4px !important; font-size: 12px !important; margin-top: 30px !important;
+    }}
     </style>
 """, unsafe_allow_html=True)
 
-# PREFERÊNCIA 3, 37: TÍTULO, LINK DFV TIM DISCRETÍSSIMO
-# (Header simplificado e original)
-st.markdown('<div style="text-align: right;"><a href="'+LINK_DFV_TIM+'" target="_blank" style="color: #1F2937; font-size: 10px; text-decoration: none;">DFV TIM</a></div>', unsafe_allow_html=True)
-st.title("📶 Central de Vendas PAP FIBRA")
+if cfg.get('logo_url'):
+    try: st.image(cfg.get('logo_url'), width=120)
+    except: pass
 
-# PREFERÊNCIA 21: CSS PREMIUM (Substitui rádio ou botões de navegação, foca no formulário)
-st.markdown("---")
+st.title(f"📶 {cfg.get('titulo_app', 'PAP Fibra')}")
 
-# PREFERÊNCIA 1, 9, 23, 24, 25, 27, 28, 29: FORMULÁRIO COPIADO, SEM PÁGINA INICIAL, HP LIVRE, ES, DINÂMICO
-with st.container():
-    with st.form("form_venda_original", clear_on_submit=False):
-        # PREFERÊNCIA 26: VENDEDORES DINÂMICOS
-        vendedor_atual = st.selectbox("Operador de Venda", st.session_state['vendedores_dinamicos'])
-        
-        st.markdown("### 1. Cliente")
-        nome = st.text_input("Nome Completo *", placeholder="Nome sem abreviações")
-        cpf = st.text_input("CPF / CNPJ *")
-        
-        # PREFERÊNCIA 32: VALIDAÇÃO WHATSAPP
-        whatsapp = st.text_input("WhatsApp (DDD) *", placeholder="(27) 99999-9999")
-        
-        st.markdown("### 2. Localização")
-        col_cep, col_btn_cep = st.columns([3, 2])
-        with col_cep: cep_input = st.text_input("CEP")
-        with col_btn_cep:
-            st.markdown('<div style="margin-top: 28px;"></div>', unsafe_allow_html=True)
-            # PREFERÊNCIA 22: BUSCA CEP MÁGICA
-            if st.form_submit_button("🔍 Puxar Endereço"):
+aba_vendas, aba_leads, aba_metricas = st.tabs(["📝 Nova Venda", "📞 Leads", "📊 Métricas"])
+
+# ==================== ABA 1: VENDAS ====================
+with aba_vendas:
+    st.markdown('<p class="legenda-obrigatorio">🔴 = campos obrigatórios</p>', unsafe_allow_html=True)
+
+    with st.form("form_venda", clear_on_submit=False):
+        st.markdown("#### Cliente")
+        nome = st.text_input("Nome Completo 🔴", key='f_nome')
+        cpf = st.text_input("CPF / CNPJ 🔴", key='f_cpf')
+
+        email, mae = "", ""
+        if cfg.get('pedir_email'):
+            email = st.text_input("Email 🔴" if cfg.get('obrigatorio_email') else "Email", key='f_email')
+        if cfg.get('pedir_mae'):
+            mae = st.text_input("Nome da Mãe 🔴" if cfg.get('obrigatorio_mae') else "Nome da Mãe", key='f_mae')
+
+        col_tel1, col_tel2 = st.columns(2)
+        with col_tel1: whatsapp = st.text_input("WhatsApp 🔴", key='f_whats1')
+        with col_tel2: contato2 = st.text_input("Contato 2", key='f_whats2')
+
+        st.markdown("#### Endereço")
+        col_cep, col_btn = st.columns([2, 1])
+        with col_cep: cep_input = st.text_input("CEP", key='f_cep')
+        with col_btn:
+            if st.form_submit_button("Buscar CEP"):
+                salvar_rascunho()
                 dc = buscar_cep(cep_input)
                 if dc:
                     st.session_state['f_rua'] = dc.get("logradouro", "")
                     st.session_state['f_bairro'] = dc.get("bairro", "")
-                    st.session_state['f_cidade'] = dc.get("localidade", "")
                     st.rerun()
                 else: msg_erro("CEP não localizado.")
 
-        rua = st.text_input("Logradouro (Rua, Av...)", key='f_rua')
-        col_num, col_bairro = st.columns([2, 3])
-        with col_num: 
-            numero = st.text_input("Número")
-            # PREFERÊNCIA 9: CHECKBOX SEM NÚMERO
-            st.checkbox("Sem número")
+        rua = st.text_input("Rua", key='f_rua')
+        col_num, col_bairro = st.columns([1, 2])
+        with col_num: numero = st.text_input("Número", key='f_numero')
         with col_bairro: bairro = st.text_input("Bairro", key='f_bairro')
-        cidade = st.text_input("Cidade", key='f_cidade')
+        referencia = st.text_input("Ponto de Referência", key='f_referencia')
 
-        st.markdown("### 3. Detalhes do Pedido")
-        # PREFERÊNCIA 27: OPERADORAS DINÂMICAS
-        operadora = st.selectbox("Operadora *", ["Selecione"] + st.session_state['operadoras_dinamicas'])
-        
-        # PREFERÊNCIA 28: SELEÇÃO DINÂMICA PACOTE
-        plano_sel = "Selecione"
+        st.markdown("#### O Pedido")
+        lista_ops = ["Selecione"] + list(st.session_state['planos_dinamicos'].keys())
+        operadora = st.selectbox("Operadora 🔴", lista_ops, key='f_operadora')
+
+        plano_final, valor_plano, detalhes_plano = "Selecione", 0.00, "---"
+
         if operadora != "Selecione":
-            planos_op = st.session_state['planos_dinamicos'].get(operadora, [])
-            plano_sel = st.selectbox("Pacote de Fibra *", ["Selecione"] + planos_op)
-            # PREFERÊNCIA 30: NÃO EXIBIR VALOR ESTIMADO
+            planos_op = st.session_state['planos_dinamicos'][operadora]
+            plano_sel = st.selectbox("Plano", ["Selecione"] + list(planos_op.keys()), key='f_plano_op')
+            if plano_sel != "Selecione":
+                p_info = planos_op[plano_sel]
+                plano_final = f"{operadora} - {plano_sel}"
+                valor_plano = p_info['valor']
+                detalhes_plano = p_info['detalhes']
+                msg_info(f"R$ {valor_plano:.2f}/mês")
 
-        obs = st.text_area("Notas / Observações")
+        extra1, extra2 = "", ""
+        if cfg.get('extra1_ativo'):
+            extra1 = st.text_input(f"{cfg.get('nome_extra1')} 🔴" if cfg.get('ob_extra1') else cfg.get('nome_extra1'), key='f_extra1')
+        if cfg.get('extra2_ativo'):
+            extra2 = st.text_input(f"{cfg.get('nome_extra2')} 🔴" if cfg.get('ob_extra2') else cfg.get('nome_extra2'), key='f_extra2')
+
+        observacoes = st.text_area("Observações", key='f_obs')
+        salvar_rascunho()
+        btn_salvar = st.form_submit_button("📤 Validar, Salvar e Gerar Ficha")
+
+        if btn_salvar:
+            if not nome or not cpf or not whatsapp or operadora == "Selecione" or plano_final == "Selecione":
+                msg_erro("Preencha os campos obrigatórios e selecione o plano.")
+            else:
+                nums_w = re.sub(r'[^0-9]', '', whatsapp)
+                ult_dig = nums_w[-4:] if len(nums_w) >= 4 else nums_w
+                protocolo = f"PAP{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+                dados = {
+                    "tipo": "venda", "protocolo": protocolo, "ultimos_digitos": ult_dig, "nome": nome, "cpf": cpf,
+                    "mae": mae, "email": email, "whats1": whatsapp, "whats2": contato2, "cep": cep_input,
+                    "rua": rua, "numero": numero, "bairro": bairro, "referencia": referencia, "operadora": operadora,
+                    "plano": plano_final, "valor_plano": valor_plano, "detalhes_plano": detalhes_plano,
+                    "extra1": extra1, "extra2": extra2, "status": "Nova", "obs": observacoes
+                }
+
+                pe = st.empty()
+                pe.markdown('<div class="enviando-caixa">⏳ Registrando venda...</div>', unsafe_allow_html=True)
+                sucesso = enviar_planilha(dados)
+                pe.empty()
+
+                if sucesso:
+                    # Nota: essa mensagem NÃO afirma envio de e-mail, pois este código
+                    # só confirma o registro na planilha. Se seu Apps Script também
+                    # dispara e-mail, ajuste o texto abaixo para refletir isso.
+                    msg_sucesso("Venda registrada com sucesso!")
+                    add_hist_venda(dados)
+                    limpar_rascunho()
+                    txt_f = formatar_ficha(dados, cfg)
+                    st.code(txt_f, language="text")
+                    st.markdown(f'<a href="https://api.whatsapp.com/send?text={urllib.parse.quote(txt_f)}" target="_blank" class="btn-whatsapp">📲 Enviar Ficha Direto no WhatsApp</a>', unsafe_allow_html=True)
+                else:
+                    msg_erro("Erro de conexão. Rascunho salvo.")
+
+# ==================== ABA 2: LEADS ====================
+with aba_leads:
+    with st.form("form_lead", clear_on_submit=True):
+        nome_l = st.text_input("Nome do Contato")
+        whats_l = st.text_input("WhatsApp")
+        status_l = st.selectbox("Qualificação", ["Quente", "Frio", "Retorno", "Sem Viabilidade", "Outros"])
+        obs_l = st.text_area("Anotações")
+        if st.form_submit_button("Salvar Lead"):
+            if not nome_l or not whats_l: msg_erro("Preencha Nome e WhatsApp.")
+            else:
+                sucesso_l = enviar_planilha({"tipo": "lead", "nome": nome_l, "whatsapp": whats_l, "status": status_l, "obs": obs_l})
+                if sucesso_l:
+                    msg_sucesso("Lead salvo!")
+                    add_hist_lead(nome_l, status_l)
+                else: msg_erro("Erro de conexão.")
+
+# ==================== ABA 3: MÉTRICAS ====================
+with aba_metricas:
+    st.markdown("#### 📊 Desempenho Pessoal")
+    st.markdown('<p class="aviso-local">⚠️ Esses números ficam salvos só neste navegador/aparelho — se trocar de celular ou limpar o cache, o histórico local some (as vendas continuam seguras na planilha).</p>', unsafe_allow_html=True)
+
+    hj, mes = datetime.now().strftime("%Y-%m-%d"), datetime.now().strftime("%Y-%m")
+    v_hj = [v for v in st.session_state['historico_vendas'] if v.get('data') == hj]
+    v_mes = [v for v in st.session_state['historico_vendas'] if v.get('data', '').startswith(mes)]
+    val_mes = sum([v.get('valor', 0) for v in v_mes])
+
+    c1, c2 = st.columns(2)
+    with c1: st.markdown(f'<div class="card-metrica"><h2>{len(v_hj)}</h2><p>Vendas Hoje</p></div>', unsafe_allow_html=True)
+    with c2: st.markdown(f'<div class="card-metrica"><h2>{len(v_mes)}</h2><p>Mês (R$ {val_mes:.2f})</p></div>', unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.markdown("##### 📜 Últimas Vendas Locais")
+    if not st.session_state['historico_vendas']:
+        msg_info("Nenhuma venda registrada neste aparelho ainda.")
+    for v in st.session_state['historico_vendas'][:10]:
+        msg_venda_item(f"{v['nome']} ({v.get('bairro','')}) - {v['operadora']} (R$ {v.get('valor',0):.2f})")
+
+# ==================== ENTRADA SECRETA PARA GESTÃO ====================
+st.markdown("---")
+if not st.session_state['mostrar_login_secreto']:
+    st.markdown('<div class="botao-admin-discreto">', unsafe_allow_html=True)
+    if st.button("⚙️", help="Acesso Administrativo"):
+        st.session_state['mostrar_login_secreto'] = True
+        st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+else:
+    st.markdown("#### 🔒 Acesso Restrito de Gestão")
+    if not st.session_state['modo_gestao_liberado']:
+        senha = st.text_input("Senha Mestre", type="password")
+        if st.button("Destravar"):
+            if senha == SENHA_MESTRE_GESTAO:
+                st.session_state['modo_gestao_liberado'] = True
+                st.rerun()
+            else: msg_erro("Senha incorreta.")
+    else:
+        msg_sucesso("🔓 Painel Administrativo Ativo!")
+        if st.button("Sair da Gestão"):
+            st.session_state['modo_gestao_liberado'] = False
+            st.session_state['mostrar_login_secreto'] = False
+            st.rerun()
 
         st.markdown("---")
-        # PREFERÊNCIA 1, 36: SEM BOTÕES QUE NÃO FUNCIONAM
-        btn_finalizar = st.form_submit_button("🚀 Finalizar e Gerar Ficha")
+        st.markdown("##### 🛠️ Editor Universal de Planos e Layout")
 
-        if btn_finalizar:
-            # PREFERÊNCIA 31: VALIDAÇÃO RÍGIDA
-            if not nome or not cpf or not whatsapp or operadora == "Selecione" or plano_sel == "Selecione":
-                msg_erro("Por favor, preencha as informações obrigatórias (*).")
-            # PREFERÊNCIA 32: VALIDAÇÃO CPF/CNPJ
-            elif not validar_cpf_cnpj(cpf):
-                msg_erro("Formato de CPF ou CNPJ inválido.")
-            # PREFERÊNCIA 33: VALIDAÇÃO WHATSAPP
-            elif not validar_telefone(whatsapp):
-                msg_erro("WhatsApp inválido. Lembre-se do DDD (11 números).")
-            else:
-                protocolo = f"PAP{datetime.now().strftime('%Y%m%d%H%M%S')}"
-                
-                # Payload para o Apps Script registrar a venda (Aba VENDAS)
-                # PREFERÊNCIA 40 & 42: DADOS REAIS INTERAGINDO COM A PLANILHA
-                payload = {
-                    "acao": "inserir", "tipo": "venda", "protocolo": protocolo, "nome": nome, "cpf": cpf,
-                    "whats1": whatsapp, "cep": cep_input, "rua": rua, "numero": numero, "bairro": bairro, "cidade": cidade,
-                    "operadora": operadora, "plano": plano_sel, 
-                    "status": "Nova", "obs": obs, "vendedor": vendedor_atual
-                }
-                
-                with st.spinner("Sincronizando com o cofre do Google..."):
-                    resposta = chamar_api(payload)
-                
-                if resposta and resposta.get('status') == 'sucesso':
-                    msg_sucesso(f"Pedido Registrado com Sucesso! Protocolo: {protocolo}")
-                    
-                    # PREFERÊNCIA 33: GERAÇÃO DE FICHA (SUMMARY) PROFESSIONAL
-                    ficha = f"""NOVO PEDIDO PAP FIBRA
-Prot: {protocolo} | Operador: {vendedor_atual}
+        with st.form("form_gestao_supremo"):
+            st.markdown("**Personalização Visual**")
+            n_tit = st.text_input("Nome do Sistema", value=cfg.get('titulo_app'))
+            n_logo = st.text_input("URL da Logo (Opcional)", value=cfg.get('logo_url'))
+            n_cor = st.color_picker("Cor de Destaque", value=cfg.get('tema_cor'))
 
-CLIENTE: {nome.upper()}
-CPF: {cpf} | Whats: {whatsapp}
-
-ENDEREÇO: ES, {cidade}, {bairro}
-{rua}, Nº {numero} | CEP: {cep_input}
-
-PEDIDO: {operadora} - {plano_sel}
-OBS: {obs}"""
-                    st.code(ficha, language="text")
-                    
-                    # PREFERÊNCIA 6 & 33: BOTÃO WHATSAPP MÁGICO
-                    st.markdown(f'<a href="https://api.whatsapp.com/send?text={urllib.parse.quote(ficha)}" target="_blank" class="btn-whatsapp">📲 Enviar Ficha de Venda ao Suporte</a>', unsafe_allow_html=True)
-                else:
-                    msg_erro(f"Erro na comunicação com o servidor: {resposta.get('msg', 'Falha desconhecida')}")
+            st.markdown("---")
+            st.markdown("**Gestão de Planos (Valores Atuais
