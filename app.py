@@ -9,7 +9,7 @@ from streamlit_local_storage import LocalStorage
 
 # ================= CONEXÃO DE DADOS =================
 # PREFERÊNCIA 41 & 42: URL ÚNICA DO GAS E DADOS REAIS
-# CORREÇÃO DO NameError: O SEU LINK REAL ESTÁ AQUI
+# CORREÇÃO: O SEU LINK REAL ESTÁ AQUI
 URL_BACKEND_GOOGLE = "https://script.google.com/macros/s/AKfycbxpacnXvvIMh7tfqcH6iUmmRLF_9l4XhBBGdr0Iyl4RfqVnhtg4bv3daMN80yXgvyFS/exec"
 SENHA_DA_API = "PAP_SECRETO_2026" # PREFERÊNCIA 47: SEGURANÇA POR TOKEN
 SENHA_MESTRE_GESTAO = "102030"    # PREFERÊNCIA 49: SENHA MESTRE
@@ -42,7 +42,6 @@ def chamar_api(dados_payload):
 if not st.session_state.get('configs_carregadas'):
     with st.spinner("Sincronizando com o cofre do Google..."):
         # Payload para carregar os dados dinâmicos da planilha de uma vez
-        # (Isso requer que seu Apps Script tenha uma 'acao': 'carregar_inicial')
         payload_inicial = {"acao": "carregar_inicial", "senha_api": SENHA_DA_API}
         resposta_inicial = chamar_api(payload_inicial)
         
@@ -136,21 +135,6 @@ st.markdown("""
     .alerta-erro { background:#3F1D1D; border-left: 4px solid #EF4444; color:#FECACA; padding:12px; border-radius:4px; margin-bottom:12px; font-size: 14px; font-weight: 500;}
     .alerta-sucesso { background:#143324; border-left: 4px solid #10B981; color:#A7F3D0; padding:12px; border-radius:4px; margin-bottom:12px; font-size: 14px; font-weight: 500;}
     
-    /* Cards de Leads Estilo ColorNote */
-    .lead-card {
-        border-radius: 10px;
-        padding: 15px;
-        margin-bottom: 12px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        color: #0E1117 !important; /* Texto escuro nos cartões coloridos */
-    }
-    .lead-card h3 { margin: 0 0 5px 0; font-size: 16px; font-weight: 700; color: #0E1117 !important; }
-    .lead-card p { margin: 0; font-size: 13px; font-weight: 500; }
-    .lead-amarelo { background-color: #FBBF24; }
-    .lead-verde { background-color: #34D399; }
-    .lead-azul { background-color: #60A5FA; }
-    .lead-rosa { background-color: #F472B6; }
-    
     /* Títulos de Seção Premium */
     h3, h4 { color: #FFFFFF !important; font-weight: 700; margin-bottom: 15px; }
     
@@ -183,7 +167,7 @@ with st.container():
         # PREFERÊNCIA 32: VALIDAÇÃO WHATSAPP
         whatsapp = st.text_input("WhatsApp (DDD) *", placeholder="(27) 99999-9999")
         
-        st.markdown("### 2. Localização no ES")
+        st.markdown("### 2. Localização")
         col_cep, col_btn_cep = st.columns([3, 2])
         with col_cep: cep_input = st.text_input("CEP")
         with col_btn_cep:
