@@ -8,113 +8,138 @@ from streamlit_local_storage import LocalStorage
 URL_BACKEND_GOOGLE = "https://script.google.com/macros/s/AKfycbyTF3qUfRvMKh5JcyxJ_rbo8fSc04n24s8y8X7wtS0nP1qVjv2nUbpQLZHmAWmpXhKJ/exec"
 # ====================================================
 
-# --- Configuração do Terminal (Layout Corporativo) ---
-st.set_page_config(page_title="Sistema de Cadastros | Especialista Fibra", page_icon="📡", layout="centered")
+# --- Configuração do App ---
+st.set_page_config(page_title="PAP Fibra", page_icon="📶", layout="centered")
 
-# CSS: Tema Tech Sóbrio e Clean
+# CSS: Dark Mode robusto + correções de UX
 st.markdown("""
     <style>
-    /* Fundo Chumbo/Grafite: Elegante e poupa bateria no celular */
-    .stApp { background-color: #121212; color: #E5E7EB; }
-    
-    /* Tipografia Limpa */
-    h1, h2, h3, .stSubheader { color: #F9FAFB !important; font-family: 'Inter', 'Segoe UI', sans-serif; font-weight: 500; letter-spacing: -0.3px; }
-    
-    /* Campos de Entrada: Fundo levemente mais claro que a página, bordas sutis */
+    .stApp { background-color: #000000; color: #FFFFFF; }
+    h1, h2, h3, .stSubheader, label, p, span { color: #FFFFFF !important; font-family: sans-serif; font-weight: 500; }
+
+    /* Legenda de campo obrigatório */
+    .legenda-obrigatorio { color: #9CA3AF !important; font-size: 13px; margin-bottom: 10px; }
+
+    /* Inputs */
     .stTextInput>div>div>input, .stSelectbox>div>div>select, .stTextArea>div>div>textarea, .stNumberInput>div>div>input {
-        background-color: #1F2937 !important; color: #F9FAFB !important; 
-        border-radius: 6px !important; border: 1px solid #374151 !important; 
-        padding: 10px 12px !important; font-size: 15px !important;
+        background-color: #121212 !important; color: #FFFFFF !important;
+        border-radius: 6px !important; border: 1px solid #333333 !important;
+        padding: 10px 12px !important; font-size: 16px !important;
     }
-    .stTextInput>div>div>input:focus { border-color: #3B82F6 !important; }
+    textarea { color: #FFFFFF !important; }
 
-    /* Botão Principal: Azul Corporativo */
-    .stButton>button { 
-        background-color: #2563EB; color: #FFFFFF; border: none; border-radius: 6px; 
-        width: 100% !important; padding: 14px; margin-top: 15px; 
-        font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; 
+    /* Placeholders */
+    input::placeholder, textarea::placeholder { color: #6B7280 !important; }
+
+    /* Dropdown ABERTO do selectbox (evita "flash branco") */
+    ul[data-baseweb="menu"] { background-color: #121212 !important; border: 1px solid #333333 !important; }
+    ul[data-baseweb="menu"] li { background-color: #121212 !important; color: #FFFFFF !important; }
+    ul[data-baseweb="menu"] li:hover { background-color: #1F2937 !important; }
+    div[data-baseweb="popover"] { background-color: #121212 !important; }
+
+    /* Caixa base do selectbox (fechado) */
+    div[data-baseweb="select"] > div { background-color: #121212 !important; border-color: #333333 !important; color: #FFFFFF !important; }
+
+    /* Alertas nativos do Streamlit (fallback, caso apareçam em outros pontos) */
+    div[data-testid="stAlert"] { background-color: #121212 !important; border: 1px solid #333333 !important; color: #FFFFFF !important; }
+
+    /* Caixas de mensagem customizadas (usadas no lugar de st.error/st.success) */
+    .msg-caixa { border-radius: 6px; padding: 12px 16px; margin: 10px 0; font-weight: 500; font-size: 15px; }
+    .msg-erro { background-color: #2A0E0E; border: 1px solid #B91C1C; color: #FECACA !important; }
+    .msg-erro * { color: #FECACA !important; }
+    .msg-sucesso { background-color: #0E2A17; border: 1px solid #15803D; color: #BBF7D0 !important; }
+    .msg-sucesso * { color: #BBF7D0 !important; }
+    .msg-info { background-color: #0A1929; border: 1px solid #1E3A8A; color: #BFDBFE !important; }
+    .msg-info * { color: #BFDBFE !important; }
+
+    /* Botão Principal */
+    .stButton>button {
+        background-color: #1F2937; color: #FFFFFF; border: 1px solid #374151; border-radius: 6px;
+        width: 100% !important; padding: 14px; margin-top: 15px; font-weight: bold;
     }
-    .stButton>button:hover { background-color: #1D4ED8; color: #FFFFFF; }
-    
-    /* Botão Secundário (Buscar CEP) */
-    div[data-testid="column"]>.stButton>button { 
-        width: auto !important; background-color: #374151; padding: 6px 14px; 
-        font-size: 13px; text-transform: none; margin-top: 28px;
+    .stButton>button:hover { background-color: #374151; border-color: #9CA3AF; }
+    .stButton>button:disabled { background-color: #111827 !important; color: #6B7280 !important; border-color: #1F2937 !important; }
+
+    /* Botão Buscar CEP - alinhado por flexbox, igual em qualquer tela */
+    div[data-testid="column"] { display: flex; align-items: flex-end; }
+    div[data-testid="column"]>.stButton { width: 100%; }
+    div[data-testid="column"]>.stButton>button {
+        background-color: #121212; border: 1px solid #333333; padding: 10px 14px; margin-top: 0;
     }
 
-    /* Estilo das Abas de Navegação */
-    .stTabs [data-baseweb="tab-list"] { border-bottom: 1px solid #374151; gap: 0; }
-    .stTabs [data-baseweb="tab"] { 
-        height: 45px; background-color: transparent; color: #9CA3AF; 
-        border: none; flex: 1; text-align: center; font-size: 14px;
+    /* Abas com Ícones */
+    .stTabs [data-baseweb="tab-list"] { border-bottom: 1px solid #222222; gap: 0; background-color: #000000; }
+    .stTabs [data-baseweb="tab"] { height: 45px; background-color: #000000; color: #888888; border: none; flex: 1; }
+    .stTabs [aria-selected="true"] { color: #FFFFFF !important; border-bottom: 2px solid #FFFFFF !important; font-weight: bold !important; }
+
+    /* Ficha Final (Destaque Azul Escuro) */
+    .stCode { background-color: #0A1929 !important; border: 1px solid #1E3A8A !important; border-radius: 6px; color: #FFFFFF !important; }
+
+    /* Indicador de envio em andamento */
+    .enviando-caixa {
+        background-color: #1F2937; border: 1px solid #374151; border-radius: 6px;
+        padding: 12px 16px; margin-top: 10px; text-align: center; font-weight: bold;
+        animation: pulse 1.2s infinite;
     }
-    .stTabs [aria-selected="true"] { 
-        color: #3B82F6 !important; border-bottom: 2px solid #3B82F6 !important; font-weight: 600 !important; 
-    }
-    
-    /* Caixa de resultado (Ficha) */
-    .stCode { background-color: #1F2937; border: 1px solid #374151; border-radius: 6px; }
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
     </style>
 """, unsafe_allow_html=True)
 
-# --- ENGINE DE PERSISTÊNCIA (Rascunho Automático) ---
+# --- Helpers de mensagem (substituem st.error/st.success para garantir cor certa) ---
+def msg_erro(texto):
+    st.markdown(f'<div class="msg-caixa msg-erro">❌ {texto}</div>', unsafe_allow_html=True)
+
+def msg_sucesso(texto):
+    st.markdown(f'<div class="msg-caixa msg-sucesso">✅ {texto}</div>', unsafe_allow_html=True)
+
+def msg_info(texto):
+    st.markdown(f'<div class="msg-caixa msg-info">ℹ️ {texto}</div>', unsafe_allow_html=True)
+
+# --- SISTEMA DE RASCUNHO ---
 local_storage = LocalStorage()
 
 def salvar_rascunho():
     try:
         dados_rascunho = {k: v for k, v in st.session_state.items() if k.startswith('f_')}
-        local_storage.setItem("memoria_cadastro_fibra", json.dumps(dados_rascunho))
-    except:
-        pass
+        local_storage.setItem("pap_fibra_rascunho", json.dumps(dados_rascunho))
+    except: pass
 
 def carregar_rascunho():
     try:
-        rascunho_str = local_storage.getItem("memoria_cadastro_fibra")
+        rascunho_str = local_storage.getItem("pap_fibra_rascunho")
         if rascunho_str:
             rascunho = json.loads(rascunho_str) if isinstance(rascunho_str, str) else rascunho_str
             for k, v in rascunho.items():
                 st.session_state[k] = v
-            st.success("✅ Dados temporários recuperados do terminal.")
-    except:
-        pass
+    except: pass
 
 def limpar_rascunho():
     try:
-        local_storage.setItem("memoria_cadastro_fibra", "")
+        local_storage.setItem("pap_fibra_rascunho", "")
         for k in list(st.session_state.keys()):
-            if k.startswith('f_'):
-                del st.session_state[k]
-    except:
-        pass
+            if k.startswith('f_'): del st.session_state[k]
+    except: pass
 
-# --- BANCO DE PLANOS COMERCIAIS ---
+# --- DADOS DE PLANOS (UNIFICADOS - MENOS CLIQUES) ---
 PLANOS_NIO = {
-    "Residencial": {
-        "500 Mega (Essencial)": {"valor": 100.00, "detalhes": "Wi-Fi padrão incluso."},
-        "600 Mega (Essencial)": {"valor": 109.00, "detalhes": "Wi-Fi padrão incluso."},
-        "800 Mega (Super)": {"valor": 135.00, "detalhes": "Wi-Fi 6 + Globoplay 12m."},
-        "1 Giga (Ultra)": {"valor": 160.00, "detalhes": "Wi-Fi 6 + 1 Ponto Mesh + Globoplay 12m."},
-    },
-    "Empresarial (B2B)": {
-        "500 Mega (Empresarial Essencial)": {"valor": 100.00, "detalhes": "Wi-Fi 5 + Maquininha grátis."},
-        "600 Mega (Empresarial Essencial)": {"valor": 109.00, "detalhes": "Wi-Fi 5 + Maquininha grátis."},
-        "800 Mega (Empresarial Super)": {"valor": 135.00, "detalhes": "Wi-Fi 6 + Maquininha grátis + McAfee."},
-        "1 Giga (Empresarial Ultra)": {"valor": 160.00, "detalhes": "Wi-Fi 6 + 1 Ponto Mesh."},
-    }
+    "500 Mega (Residencial)": {"valor": 100.00, "detalhes": "Wi-Fi padrão"},
+    "600 Mega (Residencial)": {"valor": 109.00, "detalhes": "Wi-Fi padrão"},
+    "800 Mega (Residencial)": {"valor": 135.00, "detalhes": "Wi-Fi 6 + Globoplay"},
+    "1 Giga (Residencial)": {"valor": 160.00, "detalhes": "Wi-Fi 6 + Mesh + Globoplay"},
+    "500 Mega (Empresarial)": {"valor": 100.00, "detalhes": "Wi-Fi 5 + Maquininha"},
+    "600 Mega (Empresarial)": {"valor": 109.00, "detalhes": "Wi-Fi 5 + Maquininha"},
+    "800 Mega (Empresarial)": {"valor": 135.00, "detalhes": "Wi-Fi 6 + Maquininha + McAfee"},
+    "1 Giga (Empresarial)": {"valor": 160.00, "detalhes": "Wi-Fi 6 + Mesh"}
 }
 
 PLANOS_TIM = {
-    "Pessoa Física (PF)": {
-        "600 Mega": {"valor": 119.99, "original": 159.99, "detalhes": "Wi-Fi grátis, Globoplay + Digital."},
-        "800 Mega (Oferta Especial)": {"valor": 129.99, "original": 169.99, "detalhes": "Wi-Fi grátis, YouTube Premium + Digital."},
-        "1 Giga": {"valor": 129.99, "original": 189.99, "detalhes": "Wi-Fi 6, Digital + Extra Paramount+."},
-    },
-    "Empresarial (CNPJ)": {
-        "1 Giga (Custo-Benefício Premium)": {"valor": 99.90, "detalhes": "Oferta exclusiva CNPJ."},
-    }
+    "600 Mega (PF)": {"valor": 119.99, "detalhes": "Wi-Fi grátis + Globoplay"},
+    "800 Mega (PF)": {"valor": 129.99, "detalhes": "Wi-Fi grátis + YouTube Premium"},
+    "1 Giga (PF)": {"valor": 129.99, "detalhes": "Wi-Fi 6 + Paramount+"},
+    "1 Giga (CNPJ)": {"valor": 99.90, "detalhes": "Oferta CNPJ"}
 }
 
-# --- FUNÇÕES UTILITÁRIAS ---
+# --- FUNÇÕES ---
 def validar_cpf(cpf):
     cpf = re.sub(r'[^0-9]', '', str(cpf))
     if len(cpf) != 11 or cpf == cpf[0] * 11: return False
@@ -134,37 +159,31 @@ def buscar_cep(cep):
     return None
 
 def formatar_ficha_venda(d):
-    return f"""📡 ORDEM DE SERVIÇO - ESPECIALISTA FIBRA
+    return f"""NOVA VENDA
 
-📄 DADOS DO TITULAR
-* Titular: {d['nome'].upper()}
+CLIENTE
+* Nome: {d['nome'].upper()}
 * CPF/CNPJ: {d['cpf']}
 * Nome da Mãe: {d['mae'].upper()}
 * Email: {d['email']}
 
-📞 CONTATOS REGISTRADOS
-* Linha 1 (Principal): {d['whats1']}
-* Linha 2 (Alternativa): {d['whats2'] or 'Não informado'}
+CONTATOS
+* WhatsApp: {d['whats1']}
+* Contato 2: {d['whats2'] or '---'}
 
-📍 ENDEREÇO DE INSTALAÇÃO
+ENDEREÇO
 * CEP: {d['cep']}
-* Logradouro: {d['rua'].upper()}, Nº {d['numero']}
+* Rua: {d['rua'].upper()}, Nº {d['numero']}
 * Bairro: {d['bairro'].upper()}
 * Referência: {d['referencia'].upper()}
 
-⚙️ ESPECIFICAÇÕES DO SERVIÇO
-* Provedor: {d['operadora'].upper()}
-* Pacote Contratado: {d['plano'].upper()}
-* Faturamento: R$ {d['valor_plano']:.2f}/mês
+PEDIDO
+* Operadora: {d['operadora'].upper()}
+* Plano: {d['plano'].upper()}
+* Valor: R$ {d['valor_plano']:.2f}
+* Detalhes: {d['detalhes_plano']}
 
-DETALHES TÉCNICOS/COMERCIAIS:
-* {d['detalhes_plano']}
-
-OBSERVAÇÕES DO OPERADOR:
-* {d['obs']}
-
----
-Operador: Moabe Xavier | Especialista Fibra"""
+OBS: {d['obs']}"""
 
 def enviar_para_planilha(dados):
     try:
@@ -173,45 +192,39 @@ def enviar_para_planilha(dados):
     except: pass
     return False
 
-# --- ESTRUTURA DA INTERFACE ---
-st.title("📡 Terminal de Cadastros")
-st.markdown("Sistema integrado de gestão de vendas e instalações.")
-st.markdown("---")
+# --- INTERFACE ---
+st.title("📶 PAP Fibra")
 
 if 'rascunho_carregado' not in st.session_state:
     st.session_state['rascunho_carregado'] = False
-
 if not st.session_state['rascunho_carregado']:
-    if st.button("🔄 Sincronizar Memória do Cache (Clique em caso de perda)"):
+    if st.button("Recuperar dados digitados"):
         carregar_rascunho()
         st.session_state['rascunho_carregado'] = True
         st.rerun()
 
-aba_vendas, aba_leads = st.tabs(["📝 Solicitar Instalação", "📊 Fila de Retorno"])
+aba_vendas, aba_leads = st.tabs(["📝 Nova Venda", "📞 Leads"])
 
-# ================= ABA 1: SOLICITAÇÃO DE INSTALAÇÃO =================
 with aba_vendas:
-    
-    with st.form("form_venda", clear_on_submit=False):
-        st.markdown("#### 📄 Dados do Titular")
-        nome = st.text_input("Nome Completo / Razão Social", key='f_nome')
-        cpf = st.text_input("CPF ou CNPJ (Apenas números)", key='f_cpf')
-        email = st.text_input("Correio Eletrônico (Email)*", key='f_email')
-        mae = st.text_input("Nome da Mãe (Validação de Segurança)", key='f_mae')
-        
-        col_tel1, col_tel2 = st.columns(2)
-        with col_tel1:
-            whatsapp = st.text_input("Telefone Principal (WhatsApp)*", key='f_whats1')
-        with col_tel2:
-            contato2 = st.text_input("Telefone Alternativo", key='f_whats2')
+    st.markdown('<p class="legenda-obrigatorio">🔴 = campo obrigatório</p>', unsafe_allow_html=True)
 
-        st.markdown("<br>#### 📍 Endereço de Instalação", unsafe_allow_html=True)
-        
+    with st.form("form_venda", clear_on_submit=False):
+
+        st.markdown("#### Cliente")
+        nome = st.text_input("Nome Completo", key='f_nome')
+        cpf = st.text_input("CPF / CNPJ", key='f_cpf')
+        email = st.text_input("Email 🔴", key='f_email')
+        mae = st.text_input("Nome da Mãe", key='f_mae')
+
+        col_tel1, col_tel2 = st.columns(2)
+        with col_tel1: whatsapp = st.text_input("WhatsApp 🔴", key='f_whats1')
+        with col_tel2: contato2 = st.text_input("Contato 2", key='f_whats2')
+
+        st.markdown("#### Endereço")
         col_cep, col_btn = st.columns([2, 1])
-        with col_cep:
-            cep_input = st.text_input("Código Postal (CEP)", key='f_cep')
+        with col_cep: cep_input = st.text_input("CEP", key='f_cep')
         with col_btn:
-            if st.form_submit_button("🔍 Consultar base"):
+            if st.form_submit_button("Buscar CEP"):
                 salvar_rascunho()
                 dados_cep = buscar_cep(cep_input)
                 if dados_cep:
@@ -219,66 +232,53 @@ with aba_vendas:
                     st.session_state['f_bairro'] = dados_cep.get("bairro", "")
                     st.rerun()
                 else:
-                    st.error("Erro: CEP não localizado na base dos Correios.")
+                    msg_erro("CEP não encontrado.")
 
-        rua = st.text_input("Logradouro (Rua/Av)", key='f_rua')
+        rua = st.text_input("Rua", key='f_rua')
         col_num, col_bairro = st.columns([1, 2])
-        with col_num: 
-            numero = st.text_input("Número", key='f_numero')
-        with col_bairro: 
-            bairro = st.text_input("Bairro", key='f_bairro')
-        referencia = st.text_input("Ponto de Referência para Equipe Técnica", key='f_referencia')
+        with col_num: numero = st.text_input("Número", key='f_numero')
+        with col_bairro: bairro = st.text_input("Bairro", key='f_bairro')
+        referencia = st.text_input("Ponto de Referência", key='f_referencia')
 
-        st.markdown("<br>#### ⚙️ Especificações do Serviço", unsafe_allow_html=True)
-        operadora = st.selectbox("Provedor de Infraestrutura*", ["Selecione", "NIO Fibra", "TIM Ultrafibra", "Vivo", "Claro"], key='f_operadora')
-        
+        st.markdown("#### O Pedido")
+        operadora = st.selectbox("Operadora 🔴", ["Selecione", "NIO Fibra", "TIM Ultrafibra", "Vivo", "Claro"], key='f_operadora')
+
         plano_final, valor_plano, detalhes_plano = "Selecione", 0.00, "---"
 
         if operadora == "NIO Fibra":
-            categoria_nio = st.selectbox("Segmento", ["Selecione", "Residencial", "Empresarial (B2B)"], key='f_nio_cat')
-            if categoria_nio != "Selecione":
-                plano_selecionado = st.selectbox("Pacote Comercial", ["Selecione"] + list(PLANOS_NIO[categoria_nio].keys()), key='f_nio_plano')
-                if plano_selecionado != "Selecione":
-                    p = PLANOS_NIO[categoria_nio][plano_selecionado]
-                    plano_final = f"NIO - {categoria_nio} - {plano_selecionado}"
-                    valor_plano, detalhes_plano = p['valor'], p['detalhes']
-                    st.info(f"Faturamento: R$ {valor_plano:.2f}/mês. Equipamento: {detalhes_plano}")
+            plano_selecionado = st.selectbox("Plano", ["Selecione"] + list(PLANOS_NIO.keys()), key='f_nio_plano')
+            if plano_selecionado != "Selecione":
+                p = PLANOS_NIO[plano_selecionado]
+                plano_final = f"NIO - {plano_selecionado}"
+                valor_plano, detalhes_plano = p['valor'], p['detalhes']
+                msg_info(f"R$ {valor_plano:.2f}/mês")
 
         elif operadora == "TIM Ultrafibra":
-            categoria_tim = st.selectbox("Segmento", ["Selecione", "Pessoa Física (PF)", "Empresarial (CNPJ)"], key='f_tim_cat')
-            if categoria_tim != "Selecione":
-                plano_selecionado = st.selectbox("Pacote Comercial", ["Selecione"] + list(PLANOS_TIM[categoria_tim].keys()), key='f_tim_plano')
-                if plano_selecionado != "Selecione":
-                    p = PLANOS_TIM[categoria_tim][plano_selecionado]
-                    plano_final = f"TIM - {categoria_tim} - {plano_selecionado}"
-                    valor_plano, detalhes_plano = p['valor'], p['detalhes']
-                    if 'original' in p: 
-                        st.info(f"Faturamento Promocional (Débito): R$ {valor_plano:.2f}/mês. Valor de Tabela/Boleto: R$ {p['original']:.2f}/mês.")
-                    else: 
-                        st.info(f"Faturamento: R$ {valor_plano:.2f}/mês. Detalhes: {detalhes_plano}")
+            plano_selecionado = st.selectbox("Plano", ["Selecione"] + list(PLANOS_TIM.keys()), key='f_tim_plano')
+            if plano_selecionado != "Selecione":
+                p = PLANOS_TIM[plano_selecionado]
+                plano_final = f"TIM - {plano_selecionado}"
+                valor_plano, detalhes_plano = p['valor'], p['detalhes']
+                msg_info(f"R$ {valor_plano:.2f}/mês")
 
         elif operadora in ["Vivo", "Claro"]:
-            st.selectbox("Pacote Comercial", ["Selecione", "Configuração Padrão"], key='f_default_plano')
-            if st.session_state['f_default_plano'] == "Configuração Padrão":
-                plano_final, valor_plano, detalhes_plano = "Plano Padrão (Vivo/Claro)", 0.00, "Configuração comercial padrão."
-                st.info("Valores sob consulta. (Via Provedor Selecionado).")
+            st.selectbox("Plano", ["Selecione", "Plano Padrão"], key='f_default_plano')
+            if st.session_state['f_default_plano'] == "Plano Padrão":
+                plano_final, valor_plano, detalhes_plano = "Plano Padrão (Vivo/Claro)", 0.00, "Padrão"
+                msg_info("Valor sob consulta.")
 
-        observacoes = st.text_area("Anotações para Backoffice (Opcional)", key='f_obs')
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # Botão de Envio
-        btn_salvar = st.form_submit_button("📤 Transmitir Pedido e Gerar O.S.")
+        observacoes = st.text_area("Observações", key='f_obs')
 
-        # Persistência acionada a cada interação no formulário
         salvar_rascunho()
+        btn_salvar = st.form_submit_button("Salvar Venda e Gerar Ficha")
 
         if btn_salvar:
-            if not nome or not cpf or not email or not whatsapp: 
-                st.error("⚠️ Alerta do Sistema: Campos obrigatórios (Nome, CPF/CNPJ, Email e Telefone Principal) não preenchidos.")
-            elif operadora == "Selecione" or plano_final == "Selecione": 
-                st.error("⚠️ Alerta do Sistema: Provedor e Pacote Comercial devem ser especificados.")
-            elif not validar_cpf(cpf): 
-                st.error("❌ Falha de Validação: O documento informado (CPF/CNPJ) é inválido.")
+            if not nome or not cpf or not email or not whatsapp:
+                msg_erro("Preencha todos os campos obrigatórios (marcados com 🔴).")
+            elif operadora == "Selecione" or plano_final == "Selecione":
+                msg_erro("Selecione Operadora e Plano.")
+            elif not validar_cpf(cpf):
+                msg_erro("CPF ou CNPJ inválido.")
             else:
                 dados_venda = {
                     "tipo": "venda", "nome": nome, "cpf": cpf, "mae": mae, "email": email, "whats1": whatsapp,
@@ -286,31 +286,34 @@ with aba_vendas:
                     "referencia": referencia, "operadora": operadora, "plano": plano_final, "valor_plano": valor_plano,
                     "detalhes_plano": detalhes_plano, "status": "Nova", "obs": observacoes
                 }
-                with st.spinner("Autenticando e transmitindo dados para a base..."):
-                    if enviar_para_planilha(dados_venda):
-                        st.success("✅ Transmissão Concluída! O.S. registrada no banco de dados.")
-                        limpar_rascunho()
-                        st.markdown("### 📋 Resumo da O.S. (Pronto para Cópia)")
-                        st.code(formatar_ficha_venda(dados_venda), language="text")
-                    else: 
-                        st.error("❌ Falha de Conexão: Servidor remoto indisponível. O rascunho foi salvo localmente.")
+                placeholder_envio = st.empty()
+                placeholder_envio.markdown('<div class="enviando-caixa">⏳ Enviando dados...</div>', unsafe_allow_html=True)
+                sucesso = enviar_para_planilha(dados_venda)
+                placeholder_envio.empty()
 
-# ================= ABA 2: FILA DE RETORNO =================
+                if sucesso:
+                    msg_sucesso("Venda salva na planilha!")
+                    limpar_rascunho()
+                    st.code(formatar_ficha_venda(dados_venda), language="text")
+                else:
+                    msg_erro("Erro de conexão.")
+
 with aba_leads:
     with st.form("form_lead", clear_on_submit=True):
-        st.markdown("#### 👤 Dados do Contato")
-        nome_lead = st.text_input("Identificação (Nome/Empresa)")
-        whatsapp_lead = st.text_input("Terminal de Contato (WhatsApp)")
-        status_lead = st.selectbox("Qualificação do Contato", ["Alta Prioridade (Quente)", "Baixa Prioridade (Frio)", "Agendado para Retorno", "Inviabilidade Técnica", "Outros"])
-        obs_lead = st.text_area("Registro de Interações")
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.form_submit_button("💾 Arquivar Contato no Banco de Dados"):
-            if not nome_lead or not whatsapp_lead: 
-                st.error("⚠️ Identificação e Terminal de Contato são obrigatórios para o arquivamento.")
+        nome_lead = st.text_input("Nome")
+        whatsapp_lead = st.text_input("WhatsApp")
+        status_lead = st.selectbox("Status", ["Quente", "Frio", "Retorno", "Sem Viabilidade", "Outros"])
+        obs_lead = st.text_area("Observações")
+        if st.form_submit_button("Salvar Lead"):
+            if not nome_lead or not whatsapp_lead:
+                msg_erro("Preencha Nome e WhatsApp.")
             else:
-                with st.spinner("Transmitindo registro..."):
-                    if enviar_para_planilha({"tipo": "lead", "nome": nome_lead, "whatsapp": whatsapp_lead, "status": status_lead, "obs": obs_lead}):
-                        st.success(f"✅ Contato '{nome_lead}' devidamente arquivado na base.")
-                    else: 
-                        st.error("❌ Erro de Transmissão.")
+                placeholder_envio_lead = st.empty()
+                placeholder_envio_lead.markdown('<div class="enviando-caixa">⏳ Enviando dados...</div>', unsafe_allow_html=True)
+                sucesso_lead = enviar_para_planilha({"tipo": "lead", "nome": nome_lead, "whatsapp": whatsapp_lead, "status": status_lead, "obs": obs_lead})
+                placeholder_envio_lead.empty()
+
+                if sucesso_lead:
+                    msg_sucesso("Lead salvo!")
+                else:
+                    msg_erro("Erro ao enviar.")
