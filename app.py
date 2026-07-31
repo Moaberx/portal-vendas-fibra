@@ -10,10 +10,6 @@ from streamlit_local_storage import LocalStorage
 URL_BACKEND_GOOGLE = "https://script.google.com/macros/s/AKfycbyTF3qUfRvMKh5JcyxJ_rbo8fSc04n24s8y8X7wtS0nP1qVjv2nUbpQLZHmAWmpXhKJ/exec"
 
 # SENHA DO PAINEL ADMINISTRATIVO
-# IMPORTANTE: não deixe a senha real aqui no código se o repositório for público.
-# No Streamlit Cloud: Settings > Secrets, adicione a linha:
-#   senha_mestre_gestao = "sua_senha_aqui"
-# O código abaixo tenta ler do secrets primeiro; se não encontrar, usa "102030" como fallback.
 try:
     SENHA_MESTRE_GESTAO = st.secrets.get("senha_mestre_gestao", "102030")
 except Exception:
@@ -78,18 +74,21 @@ def carregar_memorias():
 
 def salvar_tudo():
     try:
-        local_storage.setItem("pap_config_sys_v5", json.dumps(st.session_state['config_sistema']))
-        local_storage.setItem("pap_planos_v5", json.dumps(st.session_state['planos_dinamicos']))
+        ts = datetime.now().strftime('%H%M%S%f')
+        local_storage.setItem("pap_config_sys_v5", json.dumps(st.session_state['config_sistema']), key=f"cfg_{ts}")
+        local_storage.setItem("pap_planos_v5", json.dumps(st.session_state['planos_dinamicos']), key=f"pln_{ts}")
     except: pass
 
 def salvar_rascunho():
     try:
-        local_storage.setItem("pap_rascunho_v5", json.dumps({k: v for k, v in st.session_state.items() if k.startswith('f_')}))
+        ts = datetime.now().strftime('%H%M%S%f')
+        local_storage.setItem("pap_rascunho_v5", json.dumps({k: v for k, v in st.session_state.items() if k.startswith('f_')}), key=f"sr_{ts}")
     except: pass
 
 def limpar_rascunho():
     try:
-        local_storage.setItem("pap_rascunho_v5", "")
+        ts = datetime.now().strftime('%H%M%S%f')
+        local_storage.setItem("pap_rascunho_v5", "", key=f"lr_{ts}")
         for k in list(st.session_state.keys()):
             if k.startswith('f_'): del st.session_state[k]
     except: pass
@@ -97,13 +96,15 @@ def limpar_rascunho():
 def add_hist_venda(d):
     reg = {"protocolo": d['protocolo'], "nome": d['nome'].split()[0], "bairro": d['bairro'], "operadora": d['operadora'], "valor": d['valor_plano'], "data": datetime.now().strftime("%Y-%m-%d")}
     st.session_state['historico_vendas'].insert(0, reg)
-    local_storage.setItem("pap_hist_vendas_v5", json.dumps(st.session_state['historico_vendas']))
+    ts = datetime.now().strftime('%H%M%S%f')
+    local_storage.setItem("pap_hist_vendas_v5", json.dumps(st.session_state['historico_vendas']), key=f"hv_{ts}")
 
 def add_hist_lead(nome, status):
     st.session_state['historico_leads'].insert(0, {"nome": nome, "status": status, "data": datetime.now().strftime("%Y-%m-%d")})
-    local_storage.setItem("pap_hist_leads_v5", json.dumps(st.session_state['historico_leads']))
+    ts = datetime.now().strftime('%H%M%S%f')
+    local_storage.setItem("pap_hist_leads_v5", json.dumps(st.session_state['historico_leads']), key=f"hl_{ts}")
 
-# --- Helpers de mensagem (SEMPRE usar estes, nunca st.error/st.success/st.info nativos) ---
+# --- Helpers de mensagem ---
 def msg_erro(t): st.markdown(f'<div class="msg-caixa msg-erro">❌ {t}</div>', unsafe_allow_html=True)
 def msg_sucesso(t): st.markdown(f'<div class="msg-caixa msg-sucesso">✅ {t}</div>', unsafe_allow_html=True)
 def msg_info(t): st.markdown(f'<div class="msg-caixa msg-info">ℹ️ {t}</div>', unsafe_allow_html=True)
@@ -137,13 +138,11 @@ def enviar_planilha(dados):
     except: return False
 
 # --- CARREGA MEMÓRIAS ANTES DE QUALQUER RENDERIZAÇÃO ---
-# (Corrigido: isso precisa acontecer ANTES de montar o CSS, senão a cor do tema
-# e o título só aparecem corretos depois de uma interação extra do usuário.)
 if not st.session_state.get('memorias_carregadas'):
     carregar_memorias()
     st.session_state['memorias_carregadas'] = True
 
-# --- CSS DINÂMICO (agora já usa a config carregada corretamente) ---
+# --- CSS DINÂMICO ---
 cfg = st.session_state['config_sistema']
 cor_tema = cfg.get('tema_cor', '#3B82F6')
 
@@ -162,7 +161,6 @@ st.markdown(f"""
     ul[data-baseweb="menu"] li {{ background-color: #121212 !important; color: #FFFFFF !important; }}
     div[data-baseweb="select"] > div {{ background-color: #121212 !important; border-color: #333333 !important; color: #FFFFFF !important; }}
 
-    /* Alertas nativos (fallback de segurança, caso algum st.error/success escape) */
     div[data-testid="stAlert"] {{ background-color: #121212 !important; border: 1px solid #333333 !important; color: #FFFFFF !important; }}
     div[data-testid="stAlert"] * {{ color: #FFFFFF !important; }}
 
@@ -192,7 +190,6 @@ st.markdown(f"""
 
     .aviso-local {{ color: #6B7280 !important; font-size: 12px; margin-top: -5px; margin-bottom: 15px; }}
 
-    /* Botão discreto de admin */
     .botao-admin-discreto button {{
         background-color: transparent !important; border: none !important; color: #374151 !important;
         width: auto !important; padding: 4px !important; font-size: 12px !important; margin-top: 30px !important;
@@ -294,9 +291,6 @@ with aba_vendas:
                 pe.empty()
 
                 if sucesso:
-                    # Nota: essa mensagem NÃO afirma envio de e-mail, pois este código
-                    # só confirma o registro na planilha. Se seu Apps Script também
-                    # dispara e-mail, ajuste o texto abaixo para refletir isso.
                     msg_sucesso("Venda registrada com sucesso!")
                     add_hist_venda(dados)
                     limpar_rascunho()
@@ -380,14 +374,15 @@ else:
             st.markdown("**Gestão de Planos (Valores Atuais)**")
             msg_info("Aqui você edita os preços atuais para refletirem na rua imediatamente.")
 
-            # Exemplo de edição rápida de valores NIO
-            novo_p_nio_800 = st.number_input("Preço 800 Mega NIO (Residencial)", value=float(st.session_state['planos_dinamicos']['NIO Fibra']['800 Mega (Residencial)']['valor']))
+            novos_valores = {}
+            for op, planos in st.session_state['planos_dinamicos'].items():
+                st.markdown(f"**{op}**")
+                novos_valores[op] = {}
+                for plano, info in planos.items():
+                    novos_valores[op][plano] = st.number_input(
+                        f"Preço: {plano}", 
+                        value=float(info['valor']), 
+                        key=f"edit_{op}_{plano}"
+                    )
 
-            if st.form_submit_button("💾 Salvar Alterações Definitivas"):
-                cfg['titulo_app'] = n_tit
-                cfg['logo_url'] = n_logo
-                cfg['tema_cor'] = n_cor
-                st.session_state['planos_dinamicos']['NIO Fibra']['800 Mega (Residencial)']['valor'] = novo_p_nio_800
-                salvar_tudo()
-                msg_sucesso("Sistema atualizado com sucesso!")
-                st.rerun()
+          
