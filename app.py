@@ -4,149 +4,90 @@ import json
 import re
 from streamlit_local_storage import LocalStorage
 
-# ================= CONFIGURAÇÕES CRUCIAIS =================
-# Esta é a sua ponte URL
-URL_BACKEND_GOOGLE = "https://script.google.com/macros/s/AKfycbzi22IQcpef2kR8Sf__aFCE2VkSj_0uFi5MMne1yKQ6pwM4TGy3idDv0LqQwruu2AZS/exec"
-# ==========================================================
+# ================= CONEXÃO DE DADOS =================
+URL_BACKEND_GOOGLE = "https://script.google.com/macros/s/AKfycbyTF3qUfRvMKh5JcyxJ_rbo8fSc04n24s8y8X7wtS0nP1qVjv2nUbpQLZHmAWmpXhKJ/exec"
+# ====================================================
 
-# --- Configuração da Página para Mobile e Tema Chic Extremo ---
-st.set_page_config(page_title="Portal de Vendas Premium", page_icon="📶", layout="centered")
+# --- Configuração do Terminal (Layout Corporativo) ---
+st.set_page_config(page_title="Sistema de Cadastros | Especialista Fibra", page_icon="📡", layout="centered")
 
-# CSS para Ultra Otimização Mobile e Visual Chic
+# CSS: Tema Tech Sóbrio e Clean
 st.markdown("""
     <style>
-    /* Fundo ainda mais profundo e limpo */
-    .stApp {
-        background-color: #050505;
-        color: #E0E0E0;
-    }
+    /* Fundo Chumbo/Grafite: Elegante e poupa bateria no celular */
+    .stApp { background-color: #121212; color: #E5E7EB; }
     
-    /* Títulos limpos e brancos */
-    h1, h2, h3, .stSubheader {
-        color: #FFFFFF !important;
-        font-family: 'Inter', 'Roboto', sans-serif;
-        font-weight: 300;
-        letter-spacing: -0.5px;
-    }
+    /* Tipografia Limpa */
+    h1, h2, h3, .stSubheader { color: #F9FAFB !important; font-family: 'Inter', 'Segoe UI', sans-serif; font-weight: 500; letter-spacing: -0.3px; }
     
-    /* Entradas e Seleções: Mobile Otimizadas (Maiores) e Visuais Premium */
+    /* Campos de Entrada: Fundo levemente mais claro que a página, bordas sutis */
     .stTextInput>div>div>input, .stSelectbox>div>div>select, .stTextArea>div>div>textarea, .stNumberInput>div>div>input {
-        background-color: #0A0A0A !important;
-        color: #FFFFFF !important;
-        border-radius: 8px !important;
-        border: 1px solid #1A1A1A !important;
-        padding: 12px !important;
-        font-size: 16px !important; /* Tamanho perfeito para toque */
+        background-color: #1F2937 !important; color: #F9FAFB !important; 
+        border-radius: 6px !important; border: 1px solid #374151 !important; 
+        padding: 10px 12px !important; font-size: 15px !important;
     }
-    .stTextInput>div>div>input:focus {
-        border-color: #374151 !important;
+    .stTextInput>div>div>input:focus { border-color: #3B82F6 !important; }
+
+    /* Botão Principal: Azul Corporativo */
+    .stButton>button { 
+        background-color: #2563EB; color: #FFFFFF; border: none; border-radius: 6px; 
+        width: 100% !important; padding: 14px; margin-top: 15px; 
+        font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; 
+    }
+    .stButton>button:hover { background-color: #1D4ED8; color: #FFFFFF; }
+    
+    /* Botão Secundário (Buscar CEP) */
+    div[data-testid="column"]>.stButton>button { 
+        width: auto !important; background-color: #374151; padding: 6px 14px; 
+        font-size: 13px; text-transform: none; margin-top: 28px;
     }
 
-    /* Botão Principal: Mobile Full Width e Visual Chic Grey */
-    .stButton>button {
-        background-color: #1F2937;
-        color: #FFFFFF;
-        border: 1px solid #374151;
-        border-radius: 8px;
-        transition: 0.3s;
-        font-weight: 300;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        font-size: 14px;
-        width: 100% !important; /* Full width no mobile */
-        padding: 15px;
-        margin-top: 10px;
+    /* Estilo das Abas de Navegação */
+    .stTabs [data-baseweb="tab-list"] { border-bottom: 1px solid #374151; gap: 0; }
+    .stTabs [data-baseweb="tab"] { 
+        height: 45px; background-color: transparent; color: #9CA3AF; 
+        border: none; flex: 1; text-align: center; font-size: 14px;
     }
-    .stButton>button:hover {
-        background-color: #374151;
-        border-color: #9CA3AF;
-        color: #FFFFFF;
+    .stTabs [aria-selected="true"] { 
+        color: #3B82F6 !important; border-bottom: 2px solid #3B82F6 !important; font-weight: 600 !important; 
     }
     
-    /* Botão Secundário (Buscar CEP): Menor e Limpo */
-    div[data-testid="column"]>.stButton>button {
-        width: auto !important;
-        background-color: #0A0A0A;
-        border: 1px solid #1A1A1A;
-        padding: 8px 15px;
-        text-transform: none;
-        letter-spacing: normal;
-    }
-
-    /* Abas Premium e Mobile-first */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 0;
-        width: 100%;
-        border-bottom: 1px solid #1A1A1A;
-    }
-    .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        background-color: #050505;
-        color: #9CA3AF;
-        border: none;
-        font-weight: 300;
-        flex: 1; /* Abas esticam igualmente */
-        text-align: center;
-        border-bottom: 2px solid transparent;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #050505 !important;
-        color: #FFFFFF !important;
-        font-weight: 500 !important;
-        border-bottom: 2px solid #FFFFFF !important;
-    }
-    
-    /* Removendo padding excessivo do Streamlit */
-    .main .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-        padding-left: 1rem;
-        padding-right: 1rem;
-    }
-    
-    /* Melhorando visual da ficha final */
-    .stCode {
-        background-color: #0A0A0A;
-        border: 1px solid #1A1A1A;
-        border-radius: 8px;
-    }
-    
-    /* Escondendo cabeçalhos automáticos de coluna no mobile em certas seleções */
-    @media (max-width: 640px) {
-        [data-testid="column"] {
-            width: 100% !important;
-            flex: 1 1 100% !important;
-            margin-bottom: 10px;
-        }
-    }
+    /* Caixa de resultado (Ficha) */
+    .stCode { background-color: #1F2937; border: 1px solid #374151; border-radius: 6px; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- SISTEMA DE RASCUNHO AUTOMÁTICO (Premium) ---
-# Inicializa o armazenamento local
+# --- ENGINE DE PERSISTÊNCIA (Rascunho Automático) ---
 local_storage = LocalStorage()
 
 def salvar_rascunho():
-    """Salva os dados atuais da session_state no local_storage."""
-    dados_rascunho = {k: v for k, v in st.session_state.items() if k.startswith('f_')}
-    local_storage.set("rascunho_venda_fibra_tim", dados_rascunho)
+    try:
+        dados_rascunho = {k: v for k, v in st.session_state.items() if k.startswith('f_')}
+        local_storage.setItem("memoria_cadastro_fibra", json.dumps(dados_rascunho))
+    except:
+        pass
 
 def carregar_rascunho():
-    """Carrega o rascunho salvo no local_storage para a session_state."""
-    rascunho = local_storage.get("rascunho_venda_fibra_tim")
-    if rascunho:
-        for k, v in rascunho.items():
-            st.session_state[k] = v
-        st.success("✅ Rascunho carregado automaticamente do seu celular!")
+    try:
+        rascunho_str = local_storage.getItem("memoria_cadastro_fibra")
+        if rascunho_str:
+            rascunho = json.loads(rascunho_str) if isinstance(rascunho_str, str) else rascunho_str
+            for k, v in rascunho.items():
+                st.session_state[k] = v
+            st.success("✅ Dados temporários recuperados do terminal.")
+    except:
+        pass
 
 def limpar_rascunho():
-    """Limpa o rascunho no local_storage após sucesso."""
-    local_storage.delete("rascunho_venda_fibra_tim")
-    for k in [k for k in st.session_state.items() if k.startswith('f_')]:
-        del st.session_state[k]
+    try:
+        local_storage.setItem("memoria_cadastro_fibra", "")
+        for k in list(st.session_state.keys()):
+            if k.startswith('f_'):
+                del st.session_state[k]
+    except:
+        pass
 
-# --- DADOS DE PLANOS (Atualizados conforme solicitado) ---
-
+# --- BANCO DE PLANOS COMERCIAIS ---
 PLANOS_NIO = {
     "Residencial": {
         "500 Mega (Essencial)": {"valor": 100.00, "detalhes": "Wi-Fi padrão incluso."},
@@ -173,298 +114,203 @@ PLANOS_TIM = {
     }
 }
 
-# --- Funções Inteligentes Otimizadas ---
+# --- FUNÇÕES UTILITÁRIAS ---
 def validar_cpf(cpf):
-    """Valida o CPF usando algoritmo oficial."""
     cpf = re.sub(r'[^0-9]', '', str(cpf))
-    if len(cpf) != 11 or cpf == cpf[0] * 11:
-        return False
+    if len(cpf) != 11 or cpf == cpf[0] * 11: return False
     for i in range(9, 11):
         val = sum((int(cpf[num]) * ((i + 1) - num) for num in range(0, i)))
         digito = ((val * 10) % 11) % 10
-        if digito != int(cpf[i]):
-            return False
+        if digito != int(cpf[i]): return False
     return True
 
 def buscar_cep(cep):
-    """Busca o endereço automaticamente pelo CEP (ViaCEP) - Rápida."""
     cep = re.sub(r'[^0-9]', '', str(cep))
     if len(cep) == 8:
         try:
             resp = requests.get(f"https://viacep.com.br/ws/{cep}/json/", timeout=3)
-            if resp.status_code == 200:
-                dados = resp.json()
-                if "erro" not in dados:
-                    return dados
-        except:
-            pass
+            if resp.status_code == 200 and "erro" not in resp.json(): return resp.json()
+        except: pass
     return None
 
-def formatar_ficha_venda(dados_venda):
-    """Gera o texto formatado para copiar e colar no WhatsApp."""
-    return f"""🚀 NOVA VENDA (FIBRA/TIM)
+def formatar_ficha_venda(d):
+    return f"""📡 ORDEM DE SERVIÇO - ESPECIALISTA FIBRA
 
-👤 CLIENTE (Chic)
-* Nome: {dados_venda['nome'].upper()}
-* CPF: {dados_venda['cpf']}
-* Nome Mãe: {dados_venda['mae'].upper()}
-* Email (Obr.): {dados_venda['email']}
+📄 DADOS DO TITULAR
+* Titular: {d['nome'].upper()}
+* CPF/CNPJ: {d['cpf']}
+* Nome da Mãe: {d['mae'].upper()}
+* Email: {d['email']}
 
-📞 CONTATOS
-* Whats 1: {dados_venda['whats1']}
-* Contato 2 (Opc.): {dados_venda['whats2'] or '---'}
+📞 CONTATOS REGISTRADOS
+* Linha 1 (Principal): {d['whats1']}
+* Linha 2 (Alternativa): {d['whats2'] or 'Não informado'}
 
-📍 INSTALAÇÃO
-* CEP: {dados_venda['cep']}
-* Rua: {dados_venda['rua'].upper()}
-* Nº: {dados_venda['numero']}
-* Bairro: {dados_venda['bairro'].upper()}
-* Ref.: {dados_venda['referencia'].upper()}
+📍 ENDEREÇO DE INSTALAÇÃO
+* CEP: {d['cep']}
+* Logradouro: {d['rua'].upper()}, Nº {d['numero']}
+* Bairro: {d['bairro'].upper()}
+* Referência: {d['referencia'].upper()}
 
-📶 O PEDIDO
-* Operadora: {dados_venda['operadora'].upper()}
-* Plano: {dados_venda['plano'].upper()}
-* Valor: R$ {dados_venda['valor_plano']:.2f}
+⚙️ ESPECIFICAÇÕES DO SERVIÇO
+* Provedor: {d['operadora'].upper()}
+* Pacote Contratado: {d['plano'].upper()}
+* Faturamento: R$ {d['valor_plano']:.2f}/mês
 
-DETALHES PLANO:
-* {dados_venda['detalhes_plano']}
+DETALHES TÉCNICOS/COMERCIAIS:
+* {d['detalhes_plano']}
 
-OBS:
-* {dados_venda['obs']}
-* Vendedor: Moabe (P. Premium)"""
+OBSERVAÇÕES DO OPERADOR:
+* {d['obs']}
+
+---
+Operador: Moabe Xavier | Especialista Fibra"""
 
 def enviar_para_planilha(dados):
-    """Envia os dados via POST para o Google Script."""
     try:
-        response = requests.post(
-            URL_BACKEND_GOOGLE, 
-            data=json.dumps(dados), 
-            headers={"Content-Type": "application/json"},
-            timeout=10
-        )
-        if response.status_code == 200:
-            result = response.json()
-            if result.get('status') == 'sucesso':
-                return True
-    except:
-        pass
+        resp = requests.post(URL_BACKEND_GOOGLE, data=json.dumps(dados), headers={"Content-Type": "application/json"}, timeout=10)
+        if resp.status_code == 200 and resp.json().get('status') == 'sucesso': return True
+    except: pass
     return False
 
-# --- Título Chic e Minimalista ---
-st.title("📶 Portal de Vendas Premium")
+# --- ESTRUTURA DA INTERFACE ---
+st.title("📡 Terminal de Cadastros")
+st.markdown("Sistema integrado de gestão de vendas e instalações.")
 st.markdown("---")
 
-# --- SISTEMA DE RASCUNHO: Tentativa de Carregamento Automático ---
-# No Streamlit, precisamos fazer isso antes dos widgets serem desenhados
-# mas após o local_storage ser inicializado. Usamos uma variável de controle.
 if 'rascunho_carregado' not in st.session_state:
     st.session_state['rascunho_carregado'] = False
 
 if not st.session_state['rascunho_carregado']:
-    # O Streamlit às vezes precisa de um pequeno delay para carregar o localStorage
-    if st.button("⚠️ Carregar Rascunho do Celular (Aperte se CPF não apareceu)"):
+    if st.button("🔄 Sincronizar Memória do Cache (Clique em caso de perda)"):
         carregar_rascunho()
         st.session_state['rascunho_carregado'] = True
-        st.rerun() # Recarrega para preencher os widgets
+        st.rerun()
 
-# --- Interface Principal com Abas Premium ---
-aba_vendas, aba_leads = st.tabs(["🚀 Nova Venda", "📝 Leads (Opc.)"])
+aba_vendas, aba_leads = st.tabs(["📝 Solicitar Instalação", "📊 Fila de Retorno"])
 
-# =========================================================================
-# ABA 1: NOVA VENDA (Mobile Total Otimizado)
-# =========================================================================
+# ================= ABA 1: SOLICITAÇÃO DE INSTALAÇÃO =================
 with aba_vendas:
-    st.subheader("📋 Preencha a Ficha")
     
-    # Usamos st.form para agrupar e enviar no mobile com um toque
-    with st.form("form_venda", clear_on_submit=False): # False para não limpar o CPF/Whats se houver erro
+    with st.form("form_venda", clear_on_submit=False):
+        st.markdown("#### 📄 Dados do Titular")
+        nome = st.text_input("Nome Completo / Razão Social", key='f_nome')
+        cpf = st.text_input("CPF ou CNPJ (Apenas números)", key='f_cpf')
+        email = st.text_input("Correio Eletrônico (Email)*", key='f_email')
+        mae = st.text_input("Nome da Mãe (Validação de Segurança)", key='f_mae')
         
-        st.markdown("##### 👤 Cliente")
-        
-        # Widgets com session_state para rascunho automático
-        nome = st.text_input("Nome Completo", key='f_nome')
-        cpf = st.text_input("CPF (Apenas números)", key='f_cpf')
-        
-        # Email (OBRIGATÓRIO)
-        email = st.text_input("Email do Cliente (Obrigatório)*", key='f_email')
-        
-        mae = st.text_input("Nome da Mãe do Cliente", key='f_mae')
-        
-        # WhatsApp Principal
-        whatsapp = st.text_input("WhatsApp (com DDD)*", key='f_whats1')
-        
-        # 2º Contato (OPCIONAL)
-        contato2 = st.text_input("2º Telefone/Contato (Opcional)", key='f_whats2')
+        col_tel1, col_tel2 = st.columns(2)
+        with col_tel1:
+            whatsapp = st.text_input("Telefone Principal (WhatsApp)*", key='f_whats1')
+        with col_tel2:
+            contato2 = st.text_input("Telefone Alternativo", key='f_whats2')
 
-        st.markdown("##### 📍 Endereço")
+        st.markdown("<br>#### 📍 Endereço de Instalação", unsafe_allow_html=True)
         
-        # CEP e Botão otimizados para Mobile
-        cep_input = st.text_input("CEP", key='f_cep')
-        # Botão de CEP secundário, mas otimizado
-        
-        if st.form_submit_button("🔍 Buscar CEP"):
-            # Salva rascunho antes de qualquer ação que recarregue a página
-            salvar_rascunho()
-            dados_cep = buscar_cep(cep_input)
-            if dados_cep:
-                st.session_state['f_rua'] = dados_cep.get("logradouro", "")
-                st.session_state['f_bairro'] = dados_cep.get("bairro", "")
-                st.rerun() # Atualiza os campos na tela
-            else:
-                st.error("CEP não encontrado.")
+        col_cep, col_btn = st.columns([2, 1])
+        with col_cep:
+            cep_input = st.text_input("Código Postal (CEP)", key='f_cep')
+        with col_btn:
+            if st.form_submit_button("🔍 Consultar base"):
+                salvar_rascunho()
+                dados_cep = buscar_cep(cep_input)
+                if dados_cep:
+                    st.session_state['f_rua'] = dados_cep.get("logradouro", "")
+                    st.session_state['f_bairro'] = dados_cep.get("bairro", "")
+                    st.rerun()
+                else:
+                    st.error("Erro: CEP não localizado na base dos Correios.")
 
-        rua = st.text_input("Rua", key='f_rua')
+        rua = st.text_input("Logradouro (Rua/Av)", key='f_rua')
         col_num, col_bairro = st.columns([1, 2])
-        with col_num:
-            numero = st.text_input("Nº", key='f_numero')
-        with col_bairro:
+        with col_num: 
+            numero = st.text_input("Número", key='f_numero')
+        with col_bairro: 
             bairro = st.text_input("Bairro", key='f_bairro')
-        referencia = st.text_input("Ponto de Referência", key='f_referencia')
+        referencia = st.text_input("Ponto de Referência para Equipe Técnica", key='f_referencia')
 
-        st.markdown("##### 📶 O Pedido")
+        st.markdown("<br>#### ⚙️ Especificações do Serviço", unsafe_allow_html=True)
+        operadora = st.selectbox("Provedor de Infraestrutura*", ["Selecione", "NIO Fibra", "TIM Ultrafibra", "Vivo", "Claro"], key='f_operadora')
         
-        # --- Lógica Premium de Operadora e Planos ---
-        lista_operadoras = ["Selecione", "NIO Fibra", "TIM Ultrafibra", "Vivo", "Claro"]
-        operadora = st.selectbox("Operadora*", lista_operadoras, key='f_operadora')
-        
-        plano_final = "Selecione"
-        valor_plano = 0.00
-        detalhes_plano = "---"
+        plano_final, valor_plano, detalhes_plano = "Selecione", 0.00, "---"
 
-        # Lógica dinâmica para NIO Fibra
         if operadora == "NIO Fibra":
-            # Primeiro nível: Residencial ou Empresarial
-            categoria_nio = st.selectbox("Categoria", ["Selecione", "Residencial", "Empresarial (B2B)"], key='f_nio_cat')
+            categoria_nio = st.selectbox("Segmento", ["Selecione", "Residencial", "Empresarial (B2B)"], key='f_nio_cat')
             if categoria_nio != "Selecione":
-                # Segundo nível: Lista de planos
-                lista_planos_nio = ["Selecione"] + list(PLANOS_NIO[categoria_nio].keys())
-                plano_selecionado = st.selectbox("Escolha o Plano", lista_planos_nio, key='f_nio_plano')
+                plano_selecionado = st.selectbox("Pacote Comercial", ["Selecione"] + list(PLANOS_NIO[categoria_nio].keys()), key='f_nio_plano')
                 if plano_selecionado != "Selecione":
                     p = PLANOS_NIO[categoria_nio][plano_selecionado]
                     plano_final = f"NIO - {categoria_nio} - {plano_selecionado}"
-                    valor_plano = p['valor']
-                    detalhes_plano = p['detalhes']
-                    st.info(f"R$ {valor_plano:.2f}/mês. {detalhes_plano}")
+                    valor_plano, detalhes_plano = p['valor'], p['detalhes']
+                    st.info(f"Faturamento: R$ {valor_plano:.2f}/mês. Equipamento: {detalhes_plano}")
 
-        # Lógica dinâmica para TIM Ultrafibra
         elif operadora == "TIM Ultrafibra":
-            # Primeiro nível: PF ou Empresarial
-            categoria_tim = st.selectbox("Categoria", ["Selecione", "Pessoa Física (PF)", "Empresarial (CNPJ)"], key='f_tim_cat')
+            categoria_tim = st.selectbox("Segmento", ["Selecione", "Pessoa Física (PF)", "Empresarial (CNPJ)"], key='f_tim_cat')
             if categoria_tim != "Selecione":
-                # Segundo nível: Lista de planos
-                lista_planos_tim = ["Selecione"] + list(PLANOS_TIM[categoria_tim].keys())
-                plano_selecionado = st.selectbox("Escolha o Plano", lista_planos_tim, key='f_tim_plano')
+                plano_selecionado = st.selectbox("Pacote Comercial", ["Selecione"] + list(PLANOS_TIM[categoria_tim].keys()), key='f_tim_plano')
                 if plano_selecionado != "Selecione":
                     p = PLANOS_TIM[categoria_tim][plano_selecionado]
                     plano_final = f"TIM - {categoria_tim} - {plano_selecionado}"
-                    valor_plano = p['valor']
-                    detalhes_plano = p['detalhes']
-                    # Mostra valor promocional e original se houver
-                    if 'original' in p:
-                        st.info(f"Promocional R$ {valor_plano:.2f}/mês (Débito)*. Original/Boleto: R$ {p['original']:.2f}/mês.")
-                    else:
-                        st.info(f"Valor R$ {valor_plano:.2f}/mês. {detalhes_plano}")
-                    st.warning("⚠️ Planos PF: Valor promocional exclusivo para pagamento no Débito Automático.")
+                    valor_plano, detalhes_plano = p['valor'], p['detalhes']
+                    if 'original' in p: 
+                        st.info(f"Faturamento Promocional (Débito): R$ {valor_plano:.2f}/mês. Valor de Tabela/Boleto: R$ {p['original']:.2f}/mês.")
+                    else: 
+                        st.info(f"Faturamento: R$ {valor_plano:.2f}/mês. Detalhes: {detalhes_plano}")
 
-        # Lógica PADRÃO (Oi Fiber removida, Vivo/Claro)
         elif operadora in ["Vivo", "Claro"]:
-            st.selectbox("Plano", ["Selecione", "Plano Padrão"], key='f_default_plano')
-            # Lógica para prosseguir como padrão com valor 0
-            if st.session_state['f_default_plano'] == "Plano Padrão":
-                plano_final = "Plano Padrão (Vivo/Claro)"
-                valor_plano = 0.00
-                detalhes_plano = "Plano padrão pré-configurado."
-                st.info(f"Valor: ---. (Vivo/Claro selecionado).")
+            st.selectbox("Pacote Comercial", ["Selecione", "Configuração Padrão"], key='f_default_plano')
+            if st.session_state['f_default_plano'] == "Configuração Padrão":
+                plano_final, valor_plano, detalhes_plano = "Plano Padrão (Vivo/Claro)", 0.00, "Configuração comercial padrão."
+                st.info("Valores sob consulta. (Via Provedor Selecionado).")
 
-        observacoes = st.text_area("Observações Adicionais (opcional)", key='f_obs')
-
+        observacoes = st.text_area("Anotações para Backoffice (Opcional)", key='f_obs')
         st.markdown("<br>", unsafe_allow_html=True)
-        # Botão de ação principal, MOBILE OTIMIZADO (full width)
-        # Se você clicar nele, o Streamlit vai recarregar a página para enviar, 
-        # mas nosso sistema de rascunho automático garante que o CPF não suma se falhar.
-        btn_salvar = st.form_submit_button("💾 Salvar na Planilha e Gerar Ficha")
+        
+        # Botão de Envio
+        btn_salvar = st.form_submit_button("📤 Transmitir Pedido e Gerar O.S.")
 
-        # Antes de processar, salva rascunho "quietamente" no local storage
+        # Persistência acionada a cada interação no formulário
         salvar_rascunho()
 
         if btn_salvar:
-            # Validações Otimizadas
-            if not nome or not cpf or not email or not whatsapp:
-                st.error("⚠️ Nome, CPF, Email (Obr.) e Whats 1 são obrigatórios.")
-            elif operadora == "Selecione" or plano_final == "Selecione":
-                st.error("⚠️ Escolha a Operadora e o Plano.")
-            elif not validar_cpf(cpf):
-                st.error("❌ CPF Inválido! Verifique e tente novamente.")
+            if not nome or not cpf or not email or not whatsapp: 
+                st.error("⚠️ Alerta do Sistema: Campos obrigatórios (Nome, CPF/CNPJ, Email e Telefone Principal) não preenchidos.")
+            elif operadora == "Selecione" or plano_final == "Selecione": 
+                st.error("⚠️ Alerta do Sistema: Provedor e Pacote Comercial devem ser especificados.")
+            elif not validar_cpf(cpf): 
+                st.error("❌ Falha de Validação: O documento informado (CPF/CNPJ) é inválido.")
             else:
-                # Prepara os dados para envio
                 dados_venda = {
-                    "tipo": "venda",
-                    "nome": nome,
-                    "cpf": cpf,
-                    "mae": mae,
-                    "email": email,      # Novo (OBRIGATÓRIO)
-                    "whats1": whatsapp,
-                    "whats2": contato2,   # Novo (OPCIONAL)
-                    "cep": cep_input,
-                    "rua": rua,
-                    "numero": numero,
-                    "bairro": bairro,
-                    "referencia": referencia,
-                    "operadora": operadora,
-                    "plano": plano_final, # Nome completo
-                    "valor_plano": valor_plano, # Valor numérico
-                    "detalhes_plano": detalhes_plano, # Detalhes string
-                    "status": "Nova",
-                    "obs": observacoes
+                    "tipo": "venda", "nome": nome, "cpf": cpf, "mae": mae, "email": email, "whats1": whatsapp,
+                    "whats2": contato2, "cep": cep_input, "rua": rua, "numero": numero, "bairro": bairro,
+                    "referencia": referencia, "operadora": operadora, "plano": plano_final, "valor_plano": valor_plano,
+                    "detalhes_plano": detalhes_plano, "status": "Nova", "obs": observacoes
                 }
-                
-                # Envia para a planilha com spinner móvel
-                with st.spinner("Enviando venda premium..."):
+                with st.spinner("Autenticando e transmitindo dados para a base..."):
                     if enviar_para_planilha(dados_venda):
-                        st.success("✅ Venda salva com sucesso na sua Planilha Google!")
-                        
-                        # Limpa rascunho após sucesso
+                        st.success("✅ Transmissão Concluída! O.S. registrada no banco de dados.")
                         limpar_rascunho()
-                        
-                        # Mostra a ficha formatada para cópia
-                        ficha_whatsapp = formatar_ficha_venda(dados_venda)
-                        st.markdown("### 📋 Ficha (Copie pro Whats)")
-                        st.code(ficha_whatsapp, language="text")
-                    else:
-                        st.error("❌ Erro ao enviar. Tente novamente mais tarde ou contate suporte.")
+                        st.markdown("### 📋 Resumo da O.S. (Pronto para Cópia)")
+                        st.code(formatar_ficha_venda(dados_venda), language="text")
+                    else: 
+                        st.error("❌ Falha de Conexão: Servidor remoto indisponível. O rascunho foi salvo localmente.")
 
-# =========================================================================
-# ABA 2: LEADS (Mobile Otimizada) - Mantido limpo
-# =========================================================================
+# ================= ABA 2: FILA DE RETORNO =================
 with aba_leads:
-    st.subheader("📝 Controle de Leads (Prospecção)")
     with st.form("form_lead", clear_on_submit=True):
-        nome_lead = st.text_input("Nome/Contato")
-        whatsapp_lead = st.text_input("WhatsApp (com DDD)")
-        
-        lista_status_lead = ["Quente", "Frio", "Agendar Retorno", "Sem Viabilidade", "Outro"]
-        status_lead = st.selectbox("Status", lista_status_lead)
-        obs_lead = st.text_area("Anotações Livres")
+        st.markdown("#### 👤 Dados do Contato")
+        nome_lead = st.text_input("Identificação (Nome/Empresa)")
+        whatsapp_lead = st.text_input("Terminal de Contato (WhatsApp)")
+        status_lead = st.selectbox("Qualificação do Contato", ["Alta Prioridade (Quente)", "Baixa Prioridade (Frio)", "Agendado para Retorno", "Inviabilidade Técnica", "Outros"])
+        obs_lead = st.text_area("Registro de Interações")
         
         st.markdown("<br>", unsafe_allow_html=True)
-        btn_salvar_lead = st.form_submit_button("💾 Salvar Lead")
-        
-        if btn_salvar_lead:
-            if not nome_lead or not whatsapp_lead:
-                st.error("⚠️ Nome e WhatsApp são obrigatórios.")
+        if st.form_submit_button("💾 Arquivar Contato no Banco de Dados"):
+            if not nome_lead or not whatsapp_lead: 
+                st.error("⚠️ Identificação e Terminal de Contato são obrigatórios para o arquivamento.")
             else:
-                # Prepara dados do lead
-                dados_lead = {
-                    "tipo": "lead",
-                    "nome": nome_lead,
-                    "whatsapp": whatsapp_lead,
-                    "status": status_lead,
-                    "obs": obs_lead
-                }
-                
-                # Envia para a planilha
-                with st.spinner("Enviando lead..."):
-                    if enviar_para_planilha(dados_lead):
-                        st.success(f"✅ Lead '{nome_lead}' salvo com sucesso!")
-                    else:
-                        st.error("❌ Erro ao enviar lead. Tente novamente.")
+                with st.spinner("Transmitindo registro..."):
+                    if enviar_para_planilha({"tipo": "lead", "nome": nome_lead, "whatsapp": whatsapp_lead, "status": status_lead, "obs": obs_lead}):
+                        st.success(f"✅ Contato '{nome_lead}' devidamente arquivado na base.")
+                    else: 
+                        st.error("❌ Erro de Transmissão.")
