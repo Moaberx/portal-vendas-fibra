@@ -1,3 +1,14 @@
+import streamlit as st
+import requests
+import json
+import re
+from streamlit_local_storage import LocalStorage
+
+# ================= CONEXÃO DE DADOS =================
+URL_BACKEND_GOOGLE = "https://script.google.com/macros/s/AKfycbyTF3qUfRvMKh5JcyxJ_rbo8fSc04n24s8y8X7wtS0nP1qVjv2nUbpQLZHmAWmpXhKJ/exec"
+# ====================================================
+
+# --- Configuração do App ---
 st.set_page_config(page_title="PAP Fibra", page_icon="📶", layout="centered")
 
 # CSS: Dark Mode robusto + correções de UX
