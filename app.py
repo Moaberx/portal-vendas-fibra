@@ -377,4 +377,17 @@ else:
             n_cor = st.color_picker("Cor de Destaque", value=cfg.get('tema_cor'))
 
             st.markdown("---")
-            st.markdown("**Gestão de Planos (Valores Atuais
+            st.markdown("**Gestão de Planos (Valores Atuais)**")
+            msg_info("Aqui você edita os preços atuais para refletirem na rua imediatamente.")
+
+            # Exemplo de edição rápida de valores NIO
+            novo_p_nio_800 = st.number_input("Preço 800 Mega NIO (Residencial)", value=float(st.session_state['planos_dinamicos']['NIO Fibra']['800 Mega (Residencial)']['valor']))
+
+            if st.form_submit_button("💾 Salvar Alterações Definitivas"):
+                cfg['titulo_app'] = n_tit
+                cfg['logo_url'] = n_logo
+                cfg['tema_cor'] = n_cor
+                st.session_state['planos_dinamicos']['NIO Fibra']['800 Mega (Residencial)']['valor'] = novo_p_nio_800
+                salvar_tudo()
+                msg_sucesso("Sistema atualizado com sucesso!")
+                st.rerun()
