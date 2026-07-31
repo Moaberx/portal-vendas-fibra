@@ -270,4 +270,3 @@ OBS: {obs}"""
                     st.markdown(f'<a href="https://api.whatsapp.com/send?text={urllib.parse.quote(ficha)}" target="_blank" class="btn-whatsapp">📲 Enviar Ficha de Venda ao Suporte</a>', unsafe_allow_html=True)
                 else:
                     msg_erro(f"Erro na comunicação com o servidor: {resposta.get('msg', 'Falha desconhecida')}")
-                    
