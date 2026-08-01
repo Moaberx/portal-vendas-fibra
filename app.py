@@ -11,14 +11,13 @@ st.set_page_config(
 )
 
 # ==========================================
-# 2. GESTÃO DE CREDENCIAIS (Seguro para GitHub)
+# 2. SEGURANÇA E CREDENCIAIS
 # ==========================================
-# O código agora puxa as chaves de forma invisível.
 try:
     NOTION_TOKEN = st.secrets["NOTION_TOKEN"]
     DATABASE_ID = st.secrets["DATABASE_ID"]
-except FileNotFoundError:
-    st.error("⚠️ Chaves de acesso não encontradas! Configure as Secrets no Streamlit Cloud.")
+except Exception:
+    st.error("⚠️ Chaves de acesso não encontradas! Configure as Secrets no painel do Streamlit Cloud.")
     st.stop()
 
 HEADERS = {
@@ -28,21 +27,21 @@ HEADERS = {
 }
 
 # ==========================================
-# 3. FUNÇÕES DE COMUNICAÇÃO COM A API
+# 3. FUNÇÕES DO SISTEMA
 # ==========================================
 def enviar_nota(texto):
+    """Envia a anotação para a nuvem do Notion."""
     url = "https://api.notion.com/v1/pages"
     dados = {
         "parent": {"database_id": DATABASE_ID},
         "properties": {
-            "title": { 
-                "title": [{"text": {"content": texto}}]
-            }
+            "title": {"title": [{"text": {"content": texto}}]}
         }
     }
     return requests.post(url, headers=HEADERS, json=dados)
 
 def buscar_notas_recentes():
+    """Busca as 5 notas mais recentes do banco de dados."""
     url = f"https://api.notion.com/v1/databases/{DATABASE_ID}/query"
     payload = {
         "sorts": [{"timestamp": "created_time", "direction": "descending"}],
@@ -57,59 +56,51 @@ def buscar_notas_recentes():
 # 4. INTERFACE DO APLICATIVO
 # ==========================================
 st.title("☁️ Bloco de Notas Integrado")
-st.markdown("**Nunca mais perca um texto.** Tudo o que você digita aqui vai direto para o Notion.")
+st.markdown("Suas anotações enviadas de forma segura para o Notion.")
 st.divider()
 
-# Área de Digitação Blindada
+# Formulário blindado contra perdas e travamentos
 st.subheader("📝 Nova Anotação")
 
 with st.form(key="form_notas", clear_on_submit=True):
     texto_nota = st.text_area(
         label="Conteúdo da Nota",
-        placeholder="Digite suas ideias, listas ou textos importantes aqui...",
+        placeholder="Escreva tudo o que precisar aqui...",
         height=200,
         label_visibility="collapsed"
     )
     
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        botao_salvar = st.form_submit_button("🚀 Enviar para Nuvem", use_container_width=True)
+    botao_salvar = st.form_submit_button("🚀 Enviar para a Nuvem", use_container_width=True)
 
-# Processamento do Envio
+# Ações ao clicar no botão
 if botao_salvar:
     if not texto_nota.strip():
-        st.warning("⚠️ O campo está vazio. Escreva algo antes de enviar!")
+        st.warning("⚠️ O campo de texto está vazio. Escreva algo!")
     else:
-        with st.spinner("Sincronizando com o Notion... ⏳"):
+        with st.spinner("Sincronizando com os servidores... ⏳"):
             res = enviar_nota(texto_nota)
             
             if res.status_code == 200:
                 st.success("✨ Nota salva com sucesso!")
-                st.toast('Sincronização concluída!', icon='✅')
+                st.toast("Sincronização concluída!", icon="✅")
             else:
                 st.error(f"❌ Erro ao salvar (Código: {res.status_code})")
-                with st.expander("Ver detalhes do erro técnico"):
-                    st.json(res.json())
 
 st.divider()
 
-# Histórico Recente de Notas
-st.subheader("📂 Últimas 5 Notas Salvas")
+# Visualização do Histórico
+st.subheader("📂 Últimas 5 Notas")
 
-with st.spinner("Carregando histórico..."):
+with st.spinner("Carregando histórico da nuvem..."):
     notas = buscar_notas_recentes()
     
     if not notas:
-        st.info("Nenhuma nota encontrada neste Banco de Dados.")
+        st.info("Nenhuma nota encontrada no momento.")
     else:
         for nota in notas:
             try:
+                # Extrai apenas o texto útil da resposta da API
                 texto_extraido = nota["properties"]["title"]["title"][0]["text"]["content"]
-                data_crua = nota["created_time"]
-                data_formatada = f"{data_crua[8:10]}/{data_crua[5:7]}/{data_crua[:4]}"
-                
-                with st.chat_message("user", avatar="📄"):
-                    st.write(texto_extraido)
-                    st.caption(f"🗓️ Salvo em: {data_formatada}")
+                st.info(texto_extraido, icon="📄")
             except (KeyError, IndexError):
                 pass
