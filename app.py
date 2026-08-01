@@ -22,7 +22,7 @@ if 'init' not in st.session_state:
     st.session_state.update({
         'init': True,
         'aba_ativa': "Nova Venda",
-        'vendedor_atual': "Moabe", # Fixo para o MVP
+        'vendedor_atual': "Moabe",
         'leads_locais': [],
         'rascunhos_locais': [],
         'crm_dados': [],
@@ -50,7 +50,6 @@ def gerar_chave_id(prefixo):
     return f"{prefixo}_{datetime.now().strftime('%H%M%S%f')}"
 
 def blindar_texto(texto):
-    """Evita que o Google Sheets interprete texto como fórmula matemática"""
     if not isinstance(texto, str): return texto
     texto_limpo = texto.strip()
     if texto_limpo.startswith(('=', '+', '-', '@')):
@@ -65,38 +64,35 @@ def salvar_memoria_local():
     }
     try:
         local_storage.setItem("pap_memoria_v3", json.dumps(dados), key="write_memoria_unica")
-    except Exception as e: 
-        st.toast("Aviso: Falha ao salvar no cache local do aparelho.")
+    except Exception:
+        pass
 
 if not st.session_state.get('memoria_carregada'):
     memoria_bruta = local_storage.getItem("pap_memoria_v3")
-    if memoria_bruta is None:
-        st.caption("Sincronizando dados locais...")
-        st.stop()
-    else:
-        if memoria_bruta:
-            try:
-                dados_salvos = json.loads(memoria_bruta)
-                st.session_state['leads_locais'] = dados_salvos.get('leads', [])
-                st.session_state['rascunhos_locais'] = dados_salvos.get('rascunhos', [])
-                st.session_state['config_sistema'] = dados_salvos.get('config', st.session_state['config_sistema'])
-            except Exception: 
-                pass
-        st.session_state['memoria_carregada'] = True
-        st.rerun()
+    
+    if memoria_bruta:
+        try:
+            dados_salvos = json.loads(memoria_bruta) if isinstance(memoria_bruta, str) else memoria_bruta
+            st.session_state['leads_locais'] = dados_salvos.get('leads', [])
+            st.session_state['rascunhos_locais'] = dados_salvos.get('rascunhos', [])
+            st.session_state['config_sistema'] = dados_salvos.get('config', st.session_state['config_sistema'])
+        except Exception:
+            pass
+            
+    st.session_state['memoria_carregada'] = True
 
 # --- VALIDAÇÃO UNIVERSAL DE CPF E CNPJ ---
 def validar_cpf_cnpj(documento):
     doc = re.sub(r'[^0-9]', '', str(documento))
     
-    if len(doc) == 11: # CPF
+    if len(doc) == 11: 
         if doc == doc[0] * 11: return False
         for i in range(9, 11):
             val = sum((int(doc[num]) * ((i + 1) - num) for num in range(0, i)))
             if ((val * 10) % 11) % 10 != int(doc[i]): return False
         return True
         
-    elif len(doc) == 14: # CNPJ
+    elif len(doc) == 14: 
         if doc == doc[0] * 14: return False
         pesos = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
         for i in range(12, 14):
@@ -349,7 +345,6 @@ elif st.session_state['aba_ativa'] == "Nova Venda":
                     valor_final_plano = planos_da_op.get(plano, 0.00)
                     protocolo = gerar_chave_id("PAP")
                     
-                    # Blindagem aplicada antes do envio
                     linha_dados = {
                         "tipo": "venda", "acao": "inserir", "protocolo": protocolo,
                         "nome": blindar_texto(nome), "cpf": cpf, "mae": "", "email": blindar_texto(email), 
