@@ -69,7 +69,7 @@ def salvar_memoria_local():
         st.toast("Aviso: Falha ao salvar no cache local do aparelho.")
 
 if not st.session_state.get('memoria_carregada'):
-    memoria_bruta = local_storage.getItem("pap_memoria_v3", key="read_memoria_unica")
+    memoria_bruta = local_storage.getItem("pap_memoria_v3"
     if memoria_bruta is None:
         st.caption("Sincronizando dados locais...")
         st.stop()
