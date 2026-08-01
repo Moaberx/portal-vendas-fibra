@@ -51,9 +51,12 @@ def gerar_chave_id(prefixo):
     return f"{prefixo}_{datetime.now().strftime('%H%M%S%f')}"
 
 def blindar_texto(texto):
-    if not isinstance(texto, str): return texto
+    """Impede que o Google Sheets interprete o texto como fórmula."""
+    if not isinstance(texto, str):
+        return texto
     t = texto.strip()
-    if t[:1] in ("=", "+", "-", "@"): return "'" + t
+    if t[:1] in ("=", "+", "-", "@"):
+        return "'" + t
     return t
 
 def salvar_memoria_local():
@@ -65,61 +68,79 @@ def salvar_memoria_local():
     try:
         local_storage.setItem("pap_memoria_v4", json.dumps(dados), key="write_memoria_unica")
     except Exception:
-        st.toast("Não foi possível salvar no armazenamento local do aparelho.")
+        st.toast("Aviso: Falha ao salvar no cache do aparelho.")
 
-# --- CORREÇÃO DO PROBLEMA 1 (TRAVA ASSÍNCRONA) ---
+# --- O ESCUDO ANTI-LOOP (CORREÇÃO DEFINITIVA) ---
 if not st.session_state.get('memoria_carregada'):
     memoria_bruta = local_storage.getItem("pap_memoria_v4")
     
-    if memoria_bruta is None:
-        st.caption("Sincronizando cache local...")
-        st.stop() # Congela a execução até o navegador responder
-    
-    if memoria_bruta:
-        try:
-            dados_salvos = json.loads(memoria_bruta) if isinstance(memoria_bruta, str) else memoria_bruta
-            st.session_state['leads_locais'] = dados_salvos.get('leads', [])
-            st.session_state['rascunhos_locais'] = dados_salvos.get('rascunhos', [])
-            st.session_state['config_sistema'] = dados_salvos.get('config', st.session_state['config_sistema'])
-        except Exception:
-            pass
-            
-    st.session_state['memoria_carregada'] = True
-    st.rerun()
+    if memoria_bruta is not None:
+        # Navegador respondeu (pode ter dados ou estar vazio)
+        if memoria_bruta != "":
+            try:
+                dados_salvos = json.loads(memoria_bruta) if isinstance(memoria_bruta, str) else memoria_bruta
+                if isinstance(dados_salvos, dict):
+                    st.session_state['leads_locais'] = dados_salvos.get('leads', [])
+                    st.session_state['rascunhos_locais'] = dados_salvos.get('rascunhos', [])
+                    if 'config' in dados_salvos:
+                        st.session_state['config_sistema'] = dados_salvos['config']
+            except Exception:
+                pass
+                
+        st.session_state['memoria_carregada'] = True
+        st.rerun()
+    else:
+        # Navegador engasgou e não respondeu. Exibe o botão de escape.
+        st.markdown("<h3 style='text-align: center; margin-top: 40px; color: #E5E5E5;'>⏳ Sincronizando Cache...</h3>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #888;'>Se esta tela travar por mais de 3 segundos, o seu navegador bloqueou a leitura automática.</p>", unsafe_allow_html=True)
+        
+        col_space1, col_btn, col_space2 = st.columns([1, 2, 1])
+        with col_btn:
+            if st.button("Forçar Entrada (Destravar)", use_container_width=True, type="primary"):
+                st.session_state['memoria_carregada'] = True
+                st.rerun()
+        st.stop()
 
 # --- VALIDAÇÃO DE CPF E CNPJ ---
 def validar_cpf_cnpj(documento):
     doc = re.sub(r'[^0-9]', '', str(documento))
 
     if len(doc) == 11:
-        if doc == doc[0] * 11: return False
+        if doc == doc[0] * 11:
+            return False
         for i in range(9, 11):
             val = sum(int(doc[num]) * ((i + 1) - num) for num in range(i))
             digito = ((val * 10) % 11) % 10
-            if digito != int(doc[i]): return False
+            if digito != int(doc[i]):
+                return False
         return True
 
     if len(doc) == 14:
-        if doc == doc[0] * 14: return False
+        if doc == doc[0] * 14:
+            return False
         pesos1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
         pesos2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
 
         soma1 = sum(int(doc[i]) * pesos1[i] for i in range(12))
         d1 = 11 - (soma1 % 11)
         d1 = 0 if d1 >= 10 else d1
-        if d1 != int(doc[12]): return False
+        if d1 != int(doc[12]):
+            return False
 
         soma2 = sum(int(doc[i]) * pesos2[i] for i in range(13))
         d2 = 11 - (soma2 % 11)
         d2 = 0 if d2 >= 10 else d2
-        if d2 != int(doc[13]): return False
+        if d2 != int(doc[13]):
+            return False
+
         return True
 
     return False
 
 def buscar_cep(cep):
     cep_limpo = re.sub(r'[^0-9]', '', str(cep))
-    if len(cep_limpo) != 8: return None
+    if len(cep_limpo) != 8:
+        return None
     try:
         r = requests.get(f"https://viacep.com.br/ws/{cep_limpo}/json/", timeout=5)
         if r.status_code == 200 and "erro" not in r.json():
@@ -132,21 +153,22 @@ def buscar_cep(cep):
 def api_google(payload):
     try:
         r = requests.post(URL_BACKEND_GOOGLE, data=json.dumps(payload), headers={"Content-Type": "application/json"}, timeout=15)
-        if r.status_code == 200: return r.json()
-        return {"status": "erro", "msg": f"Código {r.status_code}."}
+        if r.status_code == 200:
+            return r.json()
+        return {"status": "erro", "msg": f"O servidor respondeu com código {r.status_code}."}
     except requests.exceptions.Timeout:
         return {"status": "erro", "msg": "Tempo de conexão esgotado."}
     except requests.exceptions.RequestException:
         return {"status": "erro", "msg": "Falha na conexão com o servidor."}
     except ValueError:
-        return {"status": "erro", "msg": "Resposta inválida."}
+        return {"status": "erro", "msg": "Resposta inválida do servidor."}
 
 def fetch_crm():
     res = api_google({"acao": "ler", "senha_api": SENHA_MESTRE_GESTAO, "aba_alvo": "VENDAS"})
     if res and res.get("status") == "sucesso":
         st.session_state['crm_dados'] = res.get("dados", [])
         return True, None
-    msg = res.get("msg", "Erro desconhecido ao sincronizar.") if res else "Sem resposta."
+    msg = res.get("msg", "Erro desconhecido ao sincronizar.") if res else "Sem resposta do servidor."
     return False, msg
 
 # ================= UI E ESTILO =================
@@ -208,10 +230,14 @@ if st.session_state['crm_dados']:
         for l in linhas_vendedor:
             if len(l) > idx_status:
                 stt = str(l[idx_status]).strip().lower()
-                if stt == "lead": qtd_leads_crm += 1
-                elif stt in ["pendente", "nova"]: qtd_pendentes += 1
-                elif stt == "atenção": qtd_atencao += 1
-                elif stt == "instalada": qtd_finalizadas += 1
+                if stt == "lead":
+                    qtd_leads_crm += 1
+                elif stt in ["pendente", "nova"]:
+                    qtd_pendentes += 1
+                elif stt == "atenção":
+                    qtd_atencao += 1
+                elif stt == "instalada":
+                    qtd_finalizadas += 1
 
 st.markdown(f"""
     <div class="badge-container">
@@ -219,10 +245,11 @@ st.markdown(f"""
         <div class="badge-box"><span class="badge-num">{qtd_leads_crm}</span><span class="badge-label">Nuvem</span></div>
         <div class="badge-box"><span class="badge-num">{qtd_pendentes}</span><span class="badge-label">Pendentes</span></div>
         <div class="badge-box" style="border-color:#EF4444;"><span class="badge-num" style="color:#EF4444;">{qtd_atencao}</span><span class="badge-label">Atenção</span></div>
-        <div class="badge-box" style="border-color:#10B981;"><span class="badge-num" style="color:#10B981;">{qtd_finalizadas}</span><span class="badge-label">Fim</span></div>
+        <div class="badge-box" style="border-color:#10B981;"><span class="badge-num" style="color:#10B981;">{qtd_finalizadas}</span><span class="badge-label">Finalizadas</span></div>
     </div>
 """, unsafe_allow_html=True)
-if aviso_colunas: m_erro(aviso_colunas)
+if aviso_colunas:
+    m_erro(aviso_colunas)
 
 # ================= NAVEGAÇÃO =================
 st.title(f"📶 {st.session_state['config_sistema'].get('titulo_app', 'PAP Fibra')}")
@@ -255,14 +282,17 @@ if st.session_state['aba_ativa'] == "Leads":
 
         if st.form_submit_button("Salvar Lead"):
             if nome_l:
-                novo_id = gerar_chave_id('PAP') # Simulando protocolo
+                novo_id = gerar_chave_id('PAP')
                 st.session_state['leads_locais'].insert(0, {
-                    "id": novo_id, "nome": nome_l, "telefone": tel_l,
-                    "cor": cor_l, "data": datetime.now().strftime("%d/%m %H:%M")
+                    "id": novo_id,
+                    "nome": nome_l,
+                    "telefone": tel_l,
+                    "cor": cor_l,
+                    "data": datetime.now().strftime("%d/%m %H:%M")
                 })
                 salvar_memoria_local()
                 
-                # CORREÇÃO DO PROBLEMA 2: Envia o Lead para o Google Sheets
+                # Envia invisivelmente pro sheets
                 payload_lead = {
                     "tipo": "venda", "acao": "inserir", "protocolo": novo_id,
                     "nome": blindar_texto(nome_l), "cpf": "", "mae": "", "email": "",
@@ -270,15 +300,16 @@ if st.session_state['aba_ativa'] == "Leads":
                     "cep": "", "rua": "", "numero": "", "bairro": "", "referencia": "",
                     "operadora": "N/A", "plano": "N/A", "valor_plano": 0, "detalhes_plano": "",
                     "extra1": "", "extra2": "",
-                    "status": "Lead", "obs": "Lead provisório (Mural)", "vendedor": st.session_state['vendedor_atual']
+                    "status": "Lead", "obs": "Lead criado no aplicativo local.", "vendedor": st.session_state['vendedor_atual']
                 }
-                api_google(payload_lead) # Envia silenciosamente para não travar a rua
+                api_google(payload_lead)
+                
                 st.rerun()
             else:
                 m_erro("Informe o nome do contato.")
 
     if not st.session_state['leads_locais']:
-        st.caption("Nenhum lead provisório salvo no aparelho.")
+        st.caption("Nenhum lead registrado no seu aparelho.")
 
     for lead in st.session_state['leads_locais']:
         st.markdown(f"""
@@ -290,14 +321,13 @@ if st.session_state['aba_ativa'] == "Leads":
 
         c_btn1, c_btn2 = st.columns(2)
         if c_btn1.button("Iniciar Venda", key=f"cvt_{lead['id']}"):
-            # Passa o ID do lead para a venda, garantindo que vai sobrescrever a linha no Sheets
             st.session_state['form_venda_cache'] = {"f_protocolo": lead['id'], "f_nome": lead['nome'], "f_whats": lead['telefone']}
             st.session_state['leads_locais'] = [l for l in st.session_state['leads_locais'] if l['id'] != lead['id']]
             salvar_memoria_local()
             st.session_state['aba_ativa'] = "Nova Venda"
             st.rerun()
 
-        if c_btn2.button("Descartar Local", key=f"del_{lead['id']}"):
+        if c_btn2.button("Descartar", key=f"del_{lead['id']}"):
             st.session_state['leads_locais'] = [l for l in st.session_state['leads_locais'] if l['id'] != lead['id']]
             salvar_memoria_local()
             st.rerun()
@@ -336,7 +366,8 @@ elif st.session_state['aba_ativa'] == "Nova Venda":
 
         st.subheader("Endereço e Serviço")
         col_cep, col_btn = st.columns([2, 1])
-        with col_cep: cep = st.text_input("CEP", value=cache.get('f_cep', ''))
+        with col_cep:
+            cep = st.text_input("CEP", value=cache.get('f_cep', ''))
         with col_btn:
             if st.form_submit_button("Buscar CEP"):
                 resultado_cep = buscar_cep(cep)
@@ -349,7 +380,8 @@ elif st.session_state['aba_ativa'] == "Nova Venda":
                         'f_bairro': resultado_cep.get("bairro", ""), 'f_operadora': operadora
                     }
                     st.rerun()
-                else: m_erro("CEP não localizado.")
+                else:
+                    m_erro("CEP não localizado.")
 
         rua = st.text_input("Rua", value=cache.get('f_rua', ''))
         bairro = st.text_input("Bairro", value=cache.get('f_bairro', ''))
@@ -373,11 +405,13 @@ elif st.session_state['aba_ativa'] == "Nova Venda":
 
         if btn_salvar_rascunho:
             dados_r = {
-                "id": gerar_chave_id('rsc'), "f_protocolo": cache.get('f_protocolo'), "f_nome": nome, 
-                "f_cpf": cpf, "f_whats": whats, "f_email": email, "f_cep": cep, "f_rua": rua, 
-                "f_bairro": bairro, "f_operadora": operadora, "f_plano": plano, "f_obs": obs
+                "id": gerar_chave_id('rsc'), "f_protocolo": cache.get('f_protocolo'),
+                "f_nome": nome, "f_cpf": cpf, "f_whats": whats,
+                "f_email": email, "f_cep": cep, "f_rua": rua, "f_bairro": bairro,
+                "f_operadora": operadora, "f_plano": plano, "f_obs": obs
             }
-            for k, v in extras.items(): dados_r[f"f_{k}"] = v
+            for k, v in extras.items():
+                dados_r[f"f_{k}"] = v
             st.session_state['rascunhos_locais'].insert(0, dados_r)
             salvar_memoria_local()
             st.session_state['form_venda_cache'] = {}
@@ -400,7 +434,6 @@ elif st.session_state['aba_ativa'] == "Nova Venda":
                 if not falhou_obrig:
                     valor_final_plano = planos_da_op.get(plano, 0.00)
                     
-                    # Se veio de um Lead convertido, atualiza. Se não, cria protocolo novo.
                     protocolo = cache.get('f_protocolo', gerar_chave_id("PAP"))
                     acao_backend = "editar" if 'f_protocolo' in cache else "inserir"
 
@@ -420,8 +453,8 @@ elif st.session_state['aba_ativa'] == "Nova Venda":
                     
                     if acao_backend == "editar":
                         linha_dados["id_busca"] = protocolo
-                        linha_dados["coluna_busca"] = 1 # Busca pelo Protocolo
-                        linha_dados["novos_dados"] = list(linha_dados.values())[3:-3] # Adaptando para a API de edição caso precise
+                        linha_dados["coluna_busca"] = 1
+                        linha_dados["novos_dados"] = list(linha_dados.values())[3:-3]
 
                     with st.spinner("Enviando dados..."):
                         resposta = api_google(linha_dados)
@@ -432,8 +465,8 @@ elif st.session_state['aba_ativa'] == "Nova Venda":
                         st.session_state['aba_ativa'] = "CRM"
                         st.rerun()
                     else:
-                        erro_msg = resposta.get('msg', 'Erro desconhecido') if resposta else "Falha de rede"
-                        m_erro(f"Não foi possível enviar: {erro_msg}. Use 'Salvar Rascunho' temporariamente.")
+                        erro_msg = resposta.get('msg', 'Falha na gravação.') if resposta else "Sem resposta do servidor."
+                        m_erro(f"Erro: {erro_msg}. Salve nos rascunhos para não perder a ficha.")
 
 # ================= MÓDULO 3: GESTÃO CRM =================
 elif st.session_state['aba_ativa'] == "CRM":
@@ -465,7 +498,8 @@ elif st.session_state['aba_ativa'] == "CRM":
             idx_valor_recebido = c_map.get('ValorRecebido', len(cabecalho))
 
             for linha in linhas:
-                while len(linha) <= idx_valor_recebido: linha.append("")
+                while len(linha) <= idx_valor_recebido:
+                    linha.append("")
 
                 prot = linha[c_map['Protocolo']]
                 nome_c = linha[c_map.get('Nome', 2)] if len(linha) > c_map.get('Nome', 2) else ""
@@ -479,11 +513,16 @@ elif st.session_state['aba_ativa'] == "CRM":
                 val_recebido = linha[idx_valor_recebido]
 
                 cor_linha, mostrar = "", False
-                if filtro_status == "Pendentes" and status_clean in ["pendente", "nova"]: mostrar = True
-                elif filtro_status == "Leads na Nuvem" and status_clean == "lead": mostrar, cor_linha = True, "lead"
-                elif filtro_status == "Atenção" and status_clean == "atenção": mostrar, cor_linha = True, "atencao"
-                elif filtro_status == "Finalizadas" and status_clean == "instalada": mostrar, cor_linha = True, "finalizada"
-                elif filtro_status == "Canceladas / Reprovadas" and status_clean in ["cancelada", "reprovada"]: mostrar, cor_linha = True, "perdida"
+                if filtro_status == "Pendentes" and status_clean in ["pendente", "nova"]:
+                    mostrar = True
+                elif filtro_status == "Leads na Nuvem" and status_clean == "lead":
+                    mostrar, cor_linha = True, "lead"
+                elif filtro_status == "Atenção" and status_clean == "atenção":
+                    mostrar, cor_linha = True, "atencao"
+                elif filtro_status == "Finalizadas" and status_clean == "instalada":
+                    mostrar, cor_linha = True, "finalizada"
+                elif filtro_status == "Canceladas / Reprovadas" and status_clean in ["cancelada", "reprovada"]:
+                    mostrar, cor_linha = True, "perdida"
 
                 if mostrar:
                     st.markdown(f'<div class="crm-row {cor_linha}">', unsafe_allow_html=True)
@@ -492,7 +531,8 @@ elif st.session_state['aba_ativa'] == "CRM":
                     with c_info:
                         st.markdown(f"**{nome_c}** ({op_c})")
                         st.caption(f"{data_c} | {whats_c} | {plano_c}")
-                        if status_clean == "instalada": st.markdown(f"Faturamento: **R$ {val_recebido}**")
+                        if status_clean == "instalada":
+                            st.markdown(f"Faturamento: **R$ {val_recebido}**")
 
                     with c_act:
                         opts_status = ["Lead", "Pendente", "Atenção", "Instalada", "Reprovada", "Cancelada"]
@@ -506,7 +546,8 @@ elif st.session_state['aba_ativa'] == "CRM":
                         col_b1, col_b2 = st.columns(2)
                         if col_b1.button("Salvar", key=f"sv_{prot}"):
                             linha[c_map['Status']] = novo_st
-                            if novo_st == "Instalada": linha[idx_valor_recebido] = blindar_texto(str(novo_val))
+                            if novo_st == "Instalada":
+                                linha[idx_valor_recebido] = blindar_texto(str(novo_val))
 
                             payload = {
                                 "acao": "editar", "senha_api": SENHA_MESTRE_GESTAO,
@@ -522,11 +563,14 @@ elif st.session_state['aba_ativa'] == "CRM":
                                 fetch_crm()
                                 st.rerun()
                             else:
-                                erro_msg = resposta.get('msg', 'Falha na gravação.') if resposta else "Sem resposta."
+                                erro_msg = resposta.get('msg', 'Falha na gravação.') if resposta else "Sem resposta do servidor."
                                 m_erro(erro_msg)
 
                         link_agenda = f"https://calendar.google.com/calendar/render?action=TEMPLATE&text=Retorno+{urllib.parse.quote(str(nome_c))}&details=WhatsApp:+{whats_c}"
-                        col_b2.markdown(f'<a href="{link_agenda}" target="_blank"><button style="width:100%; padding:8px; border-radius:6px; background:#2563EB; border:none; color:#FFF;">Agendar</button></a>', unsafe_allow_html=True)
+                        col_b2.markdown(
+                            f'<a href="{link_agenda}" target="_blank"><button style="width:100%; padding:8px; border-radius:6px; background:#2563EB; border:none; color:#FFF;">Agendar</button></a>',
+                            unsafe_allow_html=True
+                        )
                     st.markdown('</div>', unsafe_allow_html=True)
 
 # ================= MÓDULO 4: ADMIN =================
@@ -537,7 +581,8 @@ elif st.session_state['aba_ativa'] == "Admin":
             if senha == SENHA_MESTRE_GESTAO:
                 st.session_state['modo_gestao_liberado'] = True
                 st.rerun()
-            else: m_erro("Credenciais inválidas.")
+            else:
+                m_erro("Credenciais inválidas.")
     else:
         st.subheader("Painel de Administração")
         if st.button("Encerrar Sessão"):
@@ -561,8 +606,16 @@ elif st.session_state['aba_ativa'] == "Admin":
                     st.markdown("---")
 
                 if st.form_submit_button("Salvar Configurações"):
-                    cfg['campos_dinamicos']['extra1'] = {'ativo': st.session_state['atv_extra1'], 'nome': st.session_state['nm_extra1'], 'obrig_operadoras': st.session_state['ob_extra1']}
-                    cfg['campos_dinamicos']['extra2'] = {'ativo': st.session_state['atv_extra2'], 'nome': st.session_state['nm_extra2'], 'obrig_operadoras': st.session_state['ob_extra2']}
+                    cfg['campos_dinamicos']['extra1'] = {
+                        'ativo': st.session_state['atv_extra1'],
+                        'nome': st.session_state['nm_extra1'],
+                        'obrig_operadoras': st.session_state['ob_extra1']
+                    }
+                    cfg['campos_dinamicos']['extra2'] = {
+                        'ativo': st.session_state['atv_extra2'],
+                        'nome': st.session_state['nm_extra2'],
+                        'obrig_operadoras': st.session_state['ob_extra2']
+                    }
                     salvar_memoria_local()
                     m_ok("Configurações registradas.")
 
