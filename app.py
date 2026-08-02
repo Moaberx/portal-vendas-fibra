@@ -30,7 +30,6 @@ if 'init' not in st.session_state:
         'leads_locais': [],
         'rascunhos_locais': [],
         'crm_dados': [],
-        'notas_recentes': [],
         'modo_gestao_liberado': False,
         'form_venda_cache': {},
         'config_sistema': {
@@ -70,7 +69,7 @@ def salvar_memoria_local():
     try:
         local_storage.setItem("pap_memoria_v5", json.dumps(dados), key="write_memoria_unica")
     except Exception:
-        st.toast("Aviso: Falha ao salvar no cache do aparelho.")
+        pass
 
 # --- ESCUDO ANTI-LOOP DE CACHE ---
 if not st.session_state.get('memoria_carregada'):
@@ -92,7 +91,7 @@ if not st.session_state.get('memoria_carregada'):
         st.rerun()
     else:
         st.markdown("<h3 style='text-align: center; margin-top: 40px; color: #E5E5E5;'>⏳ Sincronizando Cache...</h3>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #888;'>Se esta tela travar por mais de 3 segundos, clique abaixo para destravar.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #888;'>Se esta tela travar por mais de 3 segundos, seu navegador bloqueou a leitura automática.</p>", unsafe_allow_html=True)
         
         col_space1, col_btn, col_space2 = st.columns([1, 2, 1])
         with col_btn:
@@ -102,7 +101,7 @@ if not st.session_state.get('memoria_carregada'):
         st.stop()
 
 # --- INTEGRAÇÃO NOTION (BLOCO DE NOTAS / LEADS) ---
-def enviar_nota_notion(texto):
+def enviar_nota_notion(titulo, texto):
     if not NOTION_TOKEN or not NOTION_DATABASE_ID:
         return False, "Chaves do Notion não configuradas nos Secrets."
     
@@ -113,7 +112,7 @@ def enviar_nota_notion(texto):
         "Notion-Version": "2022-06-28"
     }
     
-    titulo_resumo = texto[:40] + "..." if len(texto) > 40 else texto
+    titulo_resumo = titulo[:50] if titulo else "Anotação PAP Fibra"
     
     data = {
         "parent": {"database_id": NOTION_DATABASE_ID},
@@ -136,11 +135,11 @@ def enviar_nota_notion(texto):
     try:
         response = requests.post(url, headers=headers, json=data)
         if response.status_code == 200:
-            return True, "Nota salva com sucesso!"
+            return True, "Nota salva na nuvem!"
         else:
             return False, f"Erro Notion: {response.status_code}"
     except Exception as e:
-        return False, f"Falha de conexão: {str(e)}"
+        return False, f"Falha de conexão com Notion."
 
 # --- VALIDAÇÃO DE CPF E CNPJ ---
 def validar_cpf_cnpj(documento):
@@ -211,37 +210,39 @@ st.markdown(f"""
         background-color: #171717 !important; color: #FFFFFF !important;
         border: 1px solid #333 !important; border-radius: 8px !important; padding: 12px !important;
     }}
-    .stTextInput>div>div>input:focus {{ border-color: {cor_tema} !important; }}
+    .stTextInput>div>div>input:focus, .stTextArea>div>div>textarea:focus {{ border-color: {cor_tema} !important; }}
     ul[data-baseweb="menu"] {{ background-color: #171717 !important; border: 1px solid #333 !important; }}
     ul[data-baseweb="menu"] li {{ background-color: #171717 !important; color: #FFFFFF !important; }}
     div[data-baseweb="select"] > div {{ background-color: #171717 !important; border-color: #333 !important; color: #FFFFFF !important; }}
     .stButton>button {{ background-color: #171717; color: #FFF; border: 1px solid #333; border-radius: 8px; width: 100%; padding: 12px; font-weight: bold; transition: 0.2s; }}
     .stButton>button:hover {{ border-color: {cor_tema}; color: {cor_tema}; background-color: #1A1A1A; }}
-    .btn-nuvem>button {{ background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #DDDDDD !important; }}
-    .btn-nuvem>button:hover {{ background-color: #F0F0F0 !important; }}
     .tile-card {{ border-radius: 10px; padding: 16px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }}
+    .tile-card h4 {{ margin: 0 0 5px 0; color: #000 !important; font-size: 18px; font-weight: 800; }}
+    .tile-card p {{ margin: 0; font-size: 14px; font-weight: 600; opacity: 0.8; color: #000 !important; }}
     .badge-container {{ display: flex; justify-content: space-between; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }}
     .badge-box {{ flex: 1; background: #171717; border: 1px solid #333; border-radius: 8px; padding: 10px; text-align: center; min-width: 70px; }}
     .badge-num {{ display: block; font-size: 22px; font-weight: bold; color: {cor_tema}; }}
     .badge-label {{ font-size: 11px; color: #888 !important; text-transform: uppercase; }}
     .crm-row {{ background: #171717; border-left: 4px solid #333; padding: 15px; margin-bottom: 10px; border-radius: 6px; }}
+    .crm-row.lead {{ border-left-color: #FCD34D; }}
     .crm-row.atencao {{ border-left-color: #EF4444; }}
     .crm-row.finalizada {{ border-left-color: #10B981; }}
     .crm-row.perdida {{ border-left-color: #6B7280; opacity: 0.6; }}
     .msg-box {{ padding: 12px; border-radius: 6px; margin: 10px 0; font-weight: 500; font-size: 14px; }}
     .msg-erro {{ background: #450a0a; border: 1px solid #7f1d1d; color: #fca5a5 !important; }}
     .msg-ok {{ background: #064e3b; border: 1px solid #065f46; color: #6ee7b7 !important; }}
+    .msg-info {{ background: #0A1929; border: 1px solid #1E3A8A; color: #BFDBFE !important; }}
     </style>
 """, unsafe_allow_html=True)
 
 def m_erro(t): st.markdown(f'<div class="msg-box msg-erro">❌ {t}</div>', unsafe_allow_html=True)
 def m_ok(t): st.markdown(f'<div class="msg-box msg-ok">✅ {t}</div>', unsafe_allow_html=True)
-def m_info(t): st.markdown(f'<div class="msg-box" style="background:#0A1929;border:1px solid #1E3A8A;color:#BFDBFE;">ℹ️ {t}</div>', unsafe_allow_html=True)
+def m_info(t): st.markdown(f'<div class="msg-box msg-info">ℹ️ {t}</div>', unsafe_allow_html=True)
 
 # ================= CÁLCULO DOS INDICADORES =================
 qtd_rascunhos = len(st.session_state['rascunhos_locais'])
-qtd_leads = len(st.session_state['leads_locais'])
-qtd_pendentes = qtd_atencao = qtd_finalizadas = 0
+qtd_leads_locais = len(st.session_state['leads_locais'])
+qtd_pendentes = qtd_atencao = qtd_finalizadas = qtd_leads_crm = 0
 aviso_colunas = None
 
 if st.session_state['crm_dados']:
@@ -257,57 +258,56 @@ if st.session_state['crm_dados']:
         for l in linhas_vendedor:
             if len(l) > idx_status:
                 stt = str(l[idx_status]).strip().lower()
-                if stt in ["pendente", "nova"]: qtd_pendentes += 1
+                if stt == "lead": qtd_leads_crm += 1
+                elif stt in ["pendente", "nova"]: qtd_pendentes += 1
                 elif stt == "atenção": qtd_atencao += 1
                 elif stt == "instalada": qtd_finalizadas += 1
 
 st.markdown(f"""
     <div class="badge-container">
-        <div class="badge-box"><span class="badge-num">{qtd_leads}</span><span class="badge-label">Leads</span></div>
+        <div class="badge-box"><span class="badge-num">{qtd_leads_locais}</span><span class="badge-label">Notas/Leads</span></div>
         <div class="badge-box"><span class="badge-num">{qtd_rascunhos}</span><span class="badge-label">Rascunhos</span></div>
         <div class="badge-box"><span class="badge-num">{qtd_pendentes}</span><span class="badge-label">Pendentes</span></div>
         <div class="badge-box" style="border-color:#EF4444;"><span class="badge-num" style="color:#EF4444;">{qtd_atencao}</span><span class="badge-label">Atenção</span></div>
-        <div class="badge-box" style="border-color:#10B981;"><span class="badge-num" style="color:#10B981;">{qtd_finalizadas}</span><span class="badge-label">Finalizadas</span></div>
+        <div class="badge-box" style="border-color:#10B981;"><span class="badge-num" style="color:#10B981;">{qtd_finalizadas}</span><span class="badge-label">Fim</span></div>
     </div>
 """, unsafe_allow_html=True)
 if aviso_colunas: m_erro(aviso_colunas)
 
-# ================= NAVEGAÇÃO COMPLETA (5 ABAS) =================
+# ================= NAVEGAÇÃO =================
 st.title(f"📶 {st.session_state['config_sistema'].get('titulo_app', 'PAP Fibra')}")
 
-col_nav1, col_nav2, col_nav3, col_nav4, col_nav5 = st.columns(5)
-if col_nav1.button("Venda"):
-    st.session_state['aba_ativa'] = "Nova Venda"
-    st.rerun()
-if col_nav2.button("Leads/Notas"):
-    st.session_state['aba_ativa'] = "Leads"
-    st.rerun()
-if col_nav3.button("CRM"):
-    st.session_state['aba_ativa'] = "CRM"
-    st.rerun()
-if col_nav4.button("Notion"):
-    st.session_state['aba_ativa'] = "Notion"
-    st.rerun()
-if col_nav5.button("Admin"):
-    st.session_state['aba_ativa'] = "Admin"
-    st.rerun()
+col_nav1, col_nav2, col_nav3, col_nav4 = st.columns(4)
+if col_nav1.button("📝 Venda"): st.session_state['aba_ativa'] = "Nova Venda"; st.rerun()
+if col_nav2.button("📞 Leads/Notas"): st.session_state['aba_ativa'] = "Leads"; st.rerun()
+if col_nav3.button("🗂️ CRM"): st.session_state['aba_ativa'] = "CRM"; st.rerun()
+if col_nav4.button("⚙️ Admin"): st.session_state['aba_ativa'] = "Admin"; st.rerun()
 
 st.markdown("---")
 
 # ================= MÓDULO 1: LEADS & NOTAS (INTEGRADO) =================
 if st.session_state['aba_ativa'] == "Leads":
-    st.subheader("Bloco de Notas & Central de Leads")
-    st.markdown("<p style='color: #888; font-size: 13px;'>Anote contatos rápidos ou informações de rua. O que for digitado aqui fica salvo no seu aparelho e pode ser enviado para a nuvem.</p>", unsafe_allow_html=True)
+    st.markdown("<h3 style='text-align: center;'>☁️ Bloco de Notas & Leads</h3>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #888; font-size: 14px; margin-bottom: 30px;'>Crie post-its coloridos de contatos. Tudo é salvo no seu celular, enviado para o seu CRM e tem backup no Notion.</p>", unsafe_allow_html=True)
+
+    if not NOTION_TOKEN or not NOTION_DATABASE_ID:
+        m_info("⚠️ O Notion não está configurado nos Secrets. Os leads serão salvos apenas no celular e no Google Sheets.")
 
     with st.form("form_novo_lead", clear_on_submit=True):
-        nome_l = st.text_input("Nome do Contato / Anotação")
-        whats_l = st.text_input("WhatsApp / Telefone")
-        anotacao_l = st.text_area("Detalhes Rápidos / Bloco de Notas")
-        cor_l = st.color_picker("Cor de Destaque", "#FCD34D")
+        c1, c2 = st.columns([3, 2])
+        nome_l = c1.text_input("Nome do Contato ou Título da Nota")
+        whats_l = c2.text_input("WhatsApp (Opcional)")
+        anotacao_l = st.text_area("Anotações, Script ou Detalhes Rápidos", height=100)
+        cor_l = st.color_picker("Cor de Destaque do Post-it", "#FCD34D")
 
-        if st.form_submit_button("Salvar Lead / Nota"):
+        st.markdown("<br>", unsafe_allow_html=True)
+        btn_salvar_lead = st.form_submit_button("🚀 Salvar Post-it e Enviar para Nuvem")
+
+        if btn_salvar_lead:
             if nome_l:
                 novo_id = gerar_chave_id('ld')
+                
+                # 1. Salva na Memória Local (Post-it)
                 st.session_state['leads_locais'].insert(0, {
                     "id": novo_id,
                     "nome": nome_l,
@@ -317,12 +317,33 @@ if st.session_state['aba_ativa'] == "Leads":
                     "data": datetime.now().strftime("%d/%m %H:%M")
                 })
                 salvar_memoria_local()
+                
+                # 2. Envia para o Google Sheets (CRM)
+                texto_obs = f"{anotacao_l} [Criado via Bloco de Notas]" if anotacao_l else "Lead criado no aplicativo local."
+                payload_lead = {
+                    "tipo": "venda", "acao": "inserir", "protocolo": novo_id,
+                    "nome": blindar_texto(nome_l), "cpf": "", "mae": "", "email": "",
+                    "whats1": blindar_texto(whats_l), "whats2": "",
+                    "cep": "", "rua": "", "numero": "", "bairro": "", "referencia": "",
+                    "operadora": "N/A", "plano": "N/A", "valor_plano": 0, "detalhes_plano": "",
+                    "extra1": "", "extra2": "",
+                    "status": "Lead", "obs": blindar_texto(texto_obs), "vendedor": st.session_state['vendedor_atual']
+                }
+                api_google(payload_lead) # Fundo invisível
+                
+                # 3. Envia para o Notion (Backup Extra)
+                if NOTION_TOKEN and NOTION_DATABASE_ID:
+                    conteudo_notion = f"WhatsApp: {whats_l}\n\n{anotacao_l}"
+                    sucesso_notion, msg_notion = enviar_nota_notion(nome_l, conteudo_notion)
+                    if not sucesso_notion:
+                        st.toast(msg_notion)
+                
                 st.rerun()
             else:
                 m_erro("Informe ao menos o nome do contato ou título da nota.")
 
     if not st.session_state['leads_locais']:
-        st.caption("Nenhum lead ou nota registrada localmente.")
+        st.caption("Nenhum post-it registrado no seu aparelho.")
 
     for lead in st.session_state['leads_locais']:
         st.markdown(f"""
@@ -334,14 +355,19 @@ if st.session_state['aba_ativa'] == "Leads":
         """, unsafe_allow_html=True)
 
         c_btn1, c_btn2 = st.columns(2)
-        if c_btn1.button("Iniciar Venda", key=f"cvt_{lead['id']}"):
-            st.session_state['form_venda_cache'] = {"f_nome": lead['nome'], "f_whats": lead.get('telefone', '')}
+        if c_btn1.button("Transformar em Venda", key=f"cvt_{lead['id']}"):
+            st.session_state['form_venda_cache'] = {
+                "f_protocolo": lead['id'], 
+                "f_nome": lead['nome'], 
+                "f_whats": lead.get('telefone', ''),
+                "f_obs": lead.get('anotacao', '')
+            }
             st.session_state['leads_locais'] = [l for l in st.session_state['leads_locais'] if l['id'] != lead['id']]
             salvar_memoria_local()
             st.session_state['aba_ativa'] = "Nova Venda"
             st.rerun()
 
-        if c_btn2.button("Excluir", key=f"del_{lead['id']}"):
+        if c_btn2.button("Descartar Local", key=f"del_{lead['id']}"):
             st.session_state['leads_locais'] = [l for l in st.session_state['leads_locais'] if l['id'] != lead['id']]
             salvar_memoria_local()
             st.rerun()
@@ -349,11 +375,11 @@ if st.session_state['aba_ativa'] == "Leads":
 # ================= MÓDULO 2: NOVA VENDA =================
 elif st.session_state['aba_ativa'] == "Nova Venda":
     if st.session_state['rascunhos_locais']:
-        with st.expander(f"Rascunhos salvos ({qtd_rascunhos})", expanded=False):
+        with st.expander(f"📦 Rascunhos Salvos ({qtd_rascunhos})", expanded=False):
             for r in st.session_state['rascunhos_locais']:
                 rc1, rc2 = st.columns([3, 1])
                 rc1.markdown(f"**{r.get('f_nome', 'Sem Nome')}** - {r.get('f_operadora', 'Sem operadora')}")
-                if rc2.button("Carregar", key=f"load_{r['id']}"):
+                if rc2.button("Carregar Ficha", key=f"load_{r['id']}"):
                     st.session_state['form_venda_cache'] = r
                     st.session_state['rascunhos_locais'] = [x for x in st.session_state['rascunhos_locais'] if x['id'] != r['id']]
                     salvar_memoria_local()
@@ -419,7 +445,8 @@ elif st.session_state['aba_ativa'] == "Nova Venda":
 
         if btn_salvar_rascunho:
             dados_r = {
-                "id": gerar_chave_id('rsc'), "f_nome": nome, "f_cpf": cpf, "f_whats": whats,
+                "id": gerar_chave_id('rsc'), "f_protocolo": cache.get('f_protocolo'),
+                "f_nome": nome, "f_cpf": cpf, "f_whats": whats,
                 "f_email": email, "f_cep": cep, "f_rua": rua, "f_bairro": bairro,
                 "f_operadora": operadora, "f_plano": plano, "f_obs": obs
             }
@@ -446,10 +473,12 @@ elif st.session_state['aba_ativa'] == "Nova Venda":
 
                 if not falhou_obrig:
                     valor_final_plano = planos_da_op.get(plano, 0.00)
-                    protocolo = gerar_chave_id("PAP")
+                    
+                    protocolo = cache.get('f_protocolo', gerar_chave_id("PAP"))
+                    acao_backend = "editar" if 'f_protocolo' in cache else "inserir"
 
                     linha_dados = {
-                        "tipo": "venda", "acao": "inserir", "protocolo": protocolo,
+                        "tipo": "venda", "acao": acao_backend, "protocolo": protocolo,
                         "nome": blindar_texto(nome), "cpf": cpf, "mae": "",
                         "email": blindar_texto(email), "whats1": blindar_texto(whats), "whats2": "",
                         "cep": blindar_texto(cep), "rua": blindar_texto(rua), "numero": "",
@@ -461,8 +490,13 @@ elif st.session_state['aba_ativa'] == "Nova Venda":
                         "status": "Pendente", "obs": blindar_texto(obs),
                         "vendedor": st.session_state['vendedor_atual']
                     }
+                    
+                    if acao_backend == "editar":
+                        linha_dados["id_busca"] = protocolo
+                        linha_dados["coluna_busca"] = 1
+                        linha_dados["novos_dados"] = list(linha_dados.values())[3:-3]
 
-                    with st.spinner("Enviando dados..."):
+                    with st.spinner("Enviando dados para o Google Sheets..."):
                         resposta = api_google(linha_dados)
 
                     if resposta and resposta.get('status') == 'sucesso':
@@ -471,8 +505,8 @@ elif st.session_state['aba_ativa'] == "Nova Venda":
                         st.session_state['aba_ativa'] = "CRM"
                         st.rerun()
                     else:
-                        erro_msg = resposta.get('msg', 'Erro desconhecido') if resposta else "Falha de rede"
-                        m_erro(f"Não foi possível enviar a venda: {erro_msg}. Use 'Salvar Rascunho'.")
+                        erro_msg = resposta.get('msg', 'Falha na gravação.') if resposta else "Sem resposta do servidor."
+                        m_erro(f"Erro: {erro_msg}. Salve nos rascunhos para não perder a ficha.")
 
 # ================= MÓDULO 3: GESTÃO CRM =================
 elif st.session_state['aba_ativa'] == "CRM":
@@ -500,7 +534,7 @@ elif st.session_state['aba_ativa'] == "CRM":
             else:
                 linhas = linhas_raw
 
-            filtro_status = st.selectbox("Filtro de Status", ["Pendentes", "Atenção", "Finalizadas", "Canceladas / Reprovadas"])
+            filtro_status = st.selectbox("Filtro de Status", ["Pendentes", "Leads na Nuvem", "Atenção", "Finalizadas", "Canceladas / Reprovadas"])
             idx_valor_recebido = c_map.get('ValorRecebido', len(cabecalho))
 
             for linha in linhas:
@@ -521,6 +555,8 @@ elif st.session_state['aba_ativa'] == "CRM":
                 cor_linha, mostrar = "", False
                 if filtro_status == "Pendentes" and status_clean in ["pendente", "nova"]:
                     mostrar = True
+                elif filtro_status == "Leads na Nuvem" and status_clean == "lead":
+                    mostrar, cor_linha = True, "lead"
                 elif filtro_status == "Atenção" and status_clean == "atenção":
                     mostrar, cor_linha = True, "atencao"
                 elif filtro_status == "Finalizadas" and status_clean == "instalada":
@@ -539,8 +575,8 @@ elif st.session_state['aba_ativa'] == "CRM":
                             st.markdown(f"Faturamento: **R$ {val_recebido}**")
 
                     with c_act:
-                        opts_status = ["Pendente", "Atenção", "Instalada", "Reprovada", "Cancelada"]
-                        idx_st = opts_status.index(status_raw.capitalize()) if status_raw.capitalize() in opts_status else 0
+                        opts_status = ["Lead", "Pendente", "Atenção", "Instalada", "Reprovada", "Cancelada"]
+                        idx_st = opts_status.index(status_raw.capitalize()) if status_raw.capitalize() in opts_status else 1
                         novo_st = st.selectbox("Status", opts_status, index=idx_st, key=f"st_{prot}")
 
                         novo_val = val_recebido
@@ -577,48 +613,7 @@ elif st.session_state['aba_ativa'] == "CRM":
                         )
                     st.markdown('</div>', unsafe_allow_html=True)
 
-# ================= MÓDULO 4: NOTION (BLOCO DE NOTAS RÁPIDAS) =================
-elif st.session_state['aba_ativa'] == "Notion":
-    st.markdown("<h2 style='text-align: center;'>☁️ Bloco de Notas Integrado</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #888; margin-bottom: 30px;'>Nunca mais perca um texto. Tudo o que você digita aqui vai direto para o Notion.</p>", unsafe_allow_html=True)
-
-    if not NOTION_TOKEN or not NOTION_DATABASE_ID:
-        m_info("⚠️ Para ativar o envio, adicione `notion_token` e `notion_database_id` nos Secrets do Streamlit Cloud.")
-    
-    with st.form("form_notion", clear_on_submit=True):
-        st.markdown("### 📝 Nova Anotação")
-        texto_nota = st.text_area("Digite suas ideias, listas ou textos importantes aqui...", height=150, label_visibility="collapsed")
-        
-        st.markdown("<div class='btn-nuvem'>", unsafe_allow_html=True)
-        enviado = st.form_submit_button("🚀 Enviar para Nuvem")
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-        if enviado:
-            if texto_nota.strip():
-                with st.spinner("Enviando para o Notion..."):
-                    sucesso, msg = enviar_nota_notion(texto_nota)
-                
-                if sucesso:
-                    m_ok(msg)
-                    st.session_state['notas_recentes'].insert(0, {"texto": texto_nota, "data": datetime.now().strftime("%d/%m/%Y %H:%M")})
-                    st.session_state['notas_recentes'] = st.session_state['notas_recentes'][:5] 
-                else:
-                    m_erro(msg)
-            else:
-                m_erro("A nota não pode estar vazia.")
-                
-    if st.session_state.get('notas_recentes'):
-        st.markdown("---")
-        st.markdown("### 📁 Últimas Notas Enviadas (Sessão Atual)")
-        for n in st.session_state['notas_recentes']:
-            st.markdown(f"""
-                <div class="tile-card" style="background-color: #1E1E1E; border-left: 4px solid {cor_tema};">
-                    <p style="color: #FFF !important; font-weight: 400;">{n['texto']}</p>
-                    <p style="color: #888 !important; font-size: 11px; margin-top: 10px;">Enviado em: {n['data']}</p>
-                </div>
-            """, unsafe_allow_html=True)
-
-# ================= MÓDULO 5: ADMIN =================
+# ================= MÓDULO 4: ADMIN =================
 elif st.session_state['aba_ativa'] == "Admin":
     if not st.session_state['modo_gestao_liberado']:
         senha = st.text_input("Senha Administrativa", type="password")
