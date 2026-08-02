@@ -68,6 +68,30 @@ if not st.session_state.get('memoria_carregada'):
     carregar_memorias()
     st.session_state['memoria_carregada'] = True
 
+def formatar_ficha_venda(d):
+    ficha = f"📄 *NOVA VENDA* 📄\n\n"
+    ficha += f"👤 *CLIENTE*\n"
+    ficha += f"Nome: {d['nome']}\n"
+    ficha += f"Doc: {d['cpf']}\n"
+    if d.get('mae'): ficha += f"Mãe: {d['mae']}\n"
+    if d.get('email'): ficha += f"Email: {d['email']}\n"
+    
+    ficha += f"\n📞 *CONTATOS*\n"
+    ficha += f"WhatsApp: {d['whats1']}\n"
+    if d.get('whats2'): ficha += f"Contato 2: {d['whats2']}\n"
+    
+    ficha += f"\n📍 *ENDEREÇO*\n"
+    ficha += f"CEP: {d['cep']}\n"
+    ficha += f"{d['rua']}, Nº {d['numero']} - {d['bairro']}\n"
+    
+    ficha += f"\n📶 *SERVIÇO*\n"
+    ficha += f"Operadora: {d['operadora']}\n"
+    ficha += f"Plano: {d['plano']}\n"
+    
+    if d.get('extra1'): ficha += f"Ref/Extra 1: {d['extra1']}\n"
+    if d.get('extra2'): ficha += f"Extra 2: {d['extra2']}\n"
+    return ficha
+
 def validar_cpf_cnpj(documento):
     doc = re.sub(r'[^0-9]', '', str(documento))
     if len(doc) == 11:
@@ -118,9 +142,7 @@ def fetch_crm_sheets():
     return False
 
 def enviar_lead_notion(nome, telefone, observacoes):
-    if not NOTION_TOKEN or not NOTION_DATABASE_ID: 
-        return False, "⚠️ Chaves do Notion não configuradas."
-    
+    if not NOTION_TOKEN or not NOTION_DATABASE_ID: return False, "⚠️ Chaves do Notion ausentes."
     url = "https://api.notion.com/v1/pages"
     headers = {"Authorization": f"Bearer {NOTION_TOKEN}", "Content-Type": "application/json", "Notion-Version": "2022-06-28"}
     
@@ -138,7 +160,6 @@ def enviar_lead_notion(nome, telefone, observacoes):
         if resp.status_code == 200:
             return True, "Enviado com sucesso!"
         else:
-            # Captura o erro EXATO que o Notion devolveu para debugar
             return False, f"Notion recusou: {resp.json().get('message', resp.text)}"
     except Exception as e: 
         return False, f"Erro de rede: {e}"
@@ -234,7 +255,7 @@ if col_n3.button("🔒 Acesso Restrito"): st.session_state['aba_ativa'] = "🔒 
 
 st.markdown("<hr style='margin-top: 5px; margin-bottom: 25px;'>", unsafe_allow_html=True)
 
-# ================= ÁREA PÚBLICA 1: NOVA VENDA (CLIENTE SAFE) =================
+# ================= ÁREA PÚBLICA 1: NOVA VENDA =================
 if st.session_state['aba_ativa'] == "📝 Nova Venda":
     
     if st.session_state['rascunhos_locais']:
@@ -260,8 +281,6 @@ if st.session_state['aba_ativa'] == "📝 Nova Venda":
         st.markdown("<h4 style='color: #374151;'>Seus Dados</h4>", unsafe_allow_html=True)
         nome = st.text_input("Nome Completo", value=cache.get('f_nome', ''), placeholder="Ex: João da Silva")
         cpf = st.text_input("CPF ou CNPJ", value=cache.get('f_cpf', ''), placeholder="Apenas números")
-        
-        # NOVOS CAMPOS ADICIONADOS AQUI
         mae = st.text_input("Nome da Mãe", value=cache.get('f_mae', ''), placeholder="Nome completo da mãe")
         email = st.text_input("E-mail", value=cache.get('f_email', ''), placeholder="exemplo@email.com")
         
@@ -278,7 +297,7 @@ if st.session_state['aba_ativa'] == "📝 Nova Venda":
                 dc = buscar_cep(cep)
                 if dc:
                     st.session_state['form_venda_cache'] = {**cache, 'f_nome': nome, 'f_cpf': cpf, 'f_mae': mae, 'f_email': email, 'f_whats': whats, 'f_contato2': contato2, 'f_cep': cep, 'f_rua': dc.get("logradouro", ""), 'f_bairro': dc.get("bairro", ""), 'f_operadora': operadora}
-                    st.rerun()
+                    st.rerun() # Reinicia com os dados do CEP preenchidos
                 else: 
                     m_erro("CEP não encontrado. Por favor, digite o endereço manualmente.")
 
@@ -307,7 +326,7 @@ if st.session_state['aba_ativa'] == "📝 Nova Venda":
             st.session_state['rascunhos_locais'].insert(0, dados_r)
             salvar_rascunhos_local()
             st.session_state['form_venda_cache'] = {}
-            st.rerun()
+            m_ok("Rascunho salvo com sucesso! Acesse-o através do botão 📂 acima na próxima vez.")
 
         if btn_enviar:
             if not nome or not cpf or operadora == "Selecione o Serviço" or plano == "Selecione uma opção":
@@ -326,11 +345,18 @@ if st.session_state['aba_ativa'] == "📝 Nova Venda":
                 with st.spinner("Processando pedido de forma segura..."):
                     if api_google(linha_dados):
                         st.session_state['form_venda_cache'] = {}
-                        m_ok("Tudo certo! Seu pedido foi enviado com sucesso e está em processamento.")
+                        m_ok("Tudo certo! Seu pedido foi registrado com sucesso.")
+                        
+                        # EXIBE A FICHA E O BOTÃO DO WHATSAPP AQUI!
+                        texto_ficha = formatar_ficha_venda(linha_dados)
+                        st.code(texto_ficha, language="text")
+                        
+                        w_code = urllib.parse.quote_plus(texto_ficha)
+                        st.markdown(f'<a href="https://api.whatsapp.com/send?text={w_code}" target="_blank"><button style="background-color: #25D366; color: #FFF; width: 100%; border: none; padding: 14px; border-radius: 8px; font-weight: bold; font-size: 16px; margin-top: 10px;">📲 Enviar Ficha para o Backoffice</button></a>', unsafe_allow_html=True)
                     else:
-                        m_erro("Tivemos um problema com a conexão. Por favor, guarde para depois e tente em instantes.")
+                        m_erro("Tivemos um problema de conexão com a central. Guarde o pedido e tente novamente.")
 
-# ================= ÁREA PÚBLICA 2: NOVO LEAD (NOTION) =================
+# ================= ÁREA PÚBLICA 2: NOVO LEAD =================
 elif st.session_state['aba_ativa'] == "📞 Contato Rápido":
     st.markdown("<h3 style='color: #111827;'>Deixe seu contato</h3>", unsafe_allow_html=True)
     st.markdown("<p style='color: #4B5563; margin-bottom: 20px;'>Preencha os dados abaixo e retornaremos em breve para tirar suas dúvidas.</p>", unsafe_allow_html=True)
@@ -346,17 +372,16 @@ elif st.session_state['aba_ativa'] == "📞 Contato Rápido":
                 m_erro("Por favor, informe um nome e telefone válidos.")
             else:
                 with st.spinner("Enviando..."):
-                    # Aqui pegamos a mensagem exata de erro para parar de adivinhar
                     sucesso, msg_erro_notion = enviar_lead_notion(nome_lead, tel_lead, obs_lead)
                     if sucesso:
                         m_ok("Agradecemos o contato! Faremos um retorno em breve.")
                     else:
-                        m_erro(f"Não conseguimos salvar. Erro técnico: {msg_erro_notion}")
+                        m_erro(f"Erro técnico: {msg_erro_notion}")
 
-# ================= ÁREA RESTRITA: GESTÃO & CRM =================
+# ================= ÁREA RESTRITA: GESTÃO =================
 elif st.session_state['aba_ativa'] == "🔒 Painel Interno":
     if not SENHA_MESTRE_GESTAO:
-        st.error("Aviso do Sistema: O Cofre não possui chave configurada nos Secrets. Acesso negado.")
+        st.error("Aviso: Cofre sem chave configurada nos Secrets.")
         st.stop()
 
     if not st.session_state['modo_gestao_liberado']:
@@ -376,7 +401,6 @@ elif st.session_state['aba_ativa'] == "🔒 Painel Interno":
         
         tab_crm, tab_leads, tab_config = st.tabs(["🗂️ Esteira Operacional", "📞 Funil Notion", "⚙️ Ajustes"])
 
-        # --- ABA 1: CRM OFICIAL (SHEETS) ---
         with tab_crm:
             col_sync, col_hora = st.columns([1, 2])
             with col_sync:
@@ -397,7 +421,7 @@ elif st.session_state['aba_ativa'] == "🔒 Painel Interno":
                 c_map = {nome: idx for idx, nome in enumerate(cabecalho)}
                 
                 if "Protocolo" not in c_map or "Status" not in c_map:
-                    st.error("Falha estrutural: As colunas 'Protocolo' ou 'Status' não foram encontradas na planilha mestre.")
+                    st.error("Falha estrutural: Colunas 'Protocolo' ou 'Status' não encontradas.")
                 else:
                     linhas = [l for l in linhas if len(l) > c_map.get('Vendedor', 99) and str(l[c_map.get('Vendedor', 99)]) == st.session_state['vendedor_atual']]
 
@@ -479,14 +503,13 @@ elif st.session_state['aba_ativa'] == "🔒 Painel Interno":
                                     cb2.markdown(f'<a href="https://wa.me/55{re.sub(r"[^0-9]", "", whats_c)}?text={w_code}" target="_blank"><button style="width:100%; padding:8px; border-radius:6px; background:#10B981; border:none; color:#FFF; font-weight:600;">WhatsApp</button></a>', unsafe_allow_html=True)
                             st.markdown("</div>", unsafe_allow_html=True)
 
-        # --- ABA 2: FUNIL NOTION (LEADS) ---
         with tab_leads:
             if st.button("🔄 Puxar Funil do Notion"):
                 with st.spinner("Consultando Workspace..."):
                     st.session_state['notion_leads'] = consultar_leads_notion()
             
             if not st.session_state['notion_leads']:
-                st.info("Nenhum lead encontrado no Notion ou base não conectada.")
+                st.info("Nenhum lead encontrado ou base não conectada.")
             else:
                 for l in st.session_state['notion_leads']:
                     st.markdown('<div class="tile-card">', unsafe_allow_html=True)
@@ -502,9 +525,8 @@ elif st.session_state['aba_ativa'] == "🔒 Painel Interno":
                             st.toast("Status atualizado no Notion!")
                     st.markdown("</div>", unsafe_allow_html=True)
 
-        # --- ABA 3: AJUSTES DO SISTEMA ---
         with tab_config:
-            st.markdown("#### Configuração Dinâmica da Rua")
+            st.markdown("#### Configuração Dinâmica")
             cfg = st.session_state['config_sistema']
             ops_disp = list(st.session_state['planos_dinamicos'].keys())
             
@@ -512,13 +534,13 @@ elif st.session_state['aba_ativa'] == "🔒 Painel Interno":
                 for k in ["extra1", "extra2"]:
                     cc = cfg['campos_dinamicos'][k]
                     st.markdown(f"**Personalização: {k.upper()}**")
-                    c_ativo = st.checkbox("Exibir campo no formulário da rua?", value=cc['ativo'], key=f"atv_{k}")
-                    c_nome = st.text_input("Pergunta/Rótulo que o cliente verá", value=cc['nome'], key=f"nm_{k}")
-                    c_obr = st.multiselect("Travar preenchimento para quais operadoras?", ops_disp, default=cc['obrig_operadoras'], key=f"ob_{k}")
+                    c_ativo = st.checkbox("Exibir campo no formulário?", value=cc['ativo'], key=f"atv_{k}")
+                    c_nome = st.text_input("Rótulo", value=cc['nome'], key=f"nm_{k}")
+                    c_obr = st.multiselect("Obrigatório para quais operadoras?", ops_disp, default=cc['obrig_operadoras'], key=f"ob_{k}")
                     st.markdown("<hr>", unsafe_allow_html=True)
                     
                 if st.form_submit_button("Salvar Layout Oficial"):
                     cfg['campos_dinamicos']['extra1'] = {'ativo': st.session_state['atv_extra1'], 'nome': st.session_state['nm_extra1'], 'obrig_operadoras': st.session_state['ob_extra1']}
                     cfg['campos_dinamicos']['extra2'] = {'ativo': st.session_state['atv_extra2'], 'nome': st.session_state['nm_extra2'], 'obrig_operadoras': st.session_state['ob_extra2']}
                     salvar_rascunhos_local()
-                    st.success("A interface dos clientes foi atualizada com sucesso.")
+                    st.success("Interface atualizada com sucesso.")
