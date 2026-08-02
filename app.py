@@ -9,7 +9,6 @@ from streamlit_local_storage import LocalStorage
 # ================= SEGURANÇA E CONEXÕES =================
 URL_BACKEND_GOOGLE = "https://script.google.com/macros/s/AKfycbyTF3qUfRvMKh5JcyxJ_rbo8fSc04n24s8y8X7wtS0nP1qVjv2nUbpQLZHmAWmpXhKJ/exec"
 
-# As chaves NUNCA ficam no código. Se não houver secrets configurados, o acesso é bloqueado.
 SENHA_MESTRE_GESTAO = st.secrets.get("senha_mestre_gestao")
 NOTION_TOKEN = st.secrets.get("notion_token")
 NOTION_DATABASE_ID = st.secrets.get("notion_database_id")
@@ -30,7 +29,7 @@ if 'init' not in st.session_state:
         'form_venda_cache': {},
         'config_sistema': {
             "titulo_app": "Portal de Atendimento",
-            "tema_cor": "#2563EB", # Azul confiável e limpo
+            "tema_cor": "#2563EB", 
             "campos_dinamicos": {
                 "extra1": {"ativo": False, "nome": "Referência / Complemento", "obrig_operadoras": []},
                 "extra2": {"ativo": False, "nome": "Campo Extra", "obrig_operadoras": []}
@@ -46,7 +45,6 @@ if 'init' not in st.session_state:
 
 # ================= FUNÇÕES ESSENCIAIS =================
 def gerar_protocolo_seguro():
-    # Prefixo de texto evita que o Google Sheets converta silenciosamente para objeto Data
     return f"ID-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
 
 def gerar_chave_dinamica():
@@ -120,7 +118,9 @@ def fetch_crm_sheets():
     return False
 
 def enviar_lead_notion(nome, telefone, observacoes):
-    if not NOTION_TOKEN or not NOTION_DATABASE_ID: return False
+    if not NOTION_TOKEN or not NOTION_DATABASE_ID: 
+        return False, "⚠️ Chaves do Notion não configuradas."
+    
     url = "https://api.notion.com/v1/pages"
     headers = {"Authorization": f"Bearer {NOTION_TOKEN}", "Content-Type": "application/json", "Notion-Version": "2022-06-28"}
     
@@ -135,8 +135,13 @@ def enviar_lead_notion(nome, telefone, observacoes):
     }
     try:
         resp = requests.post(url, headers=headers, json=data, timeout=8)
-        return resp.status_code == 200
-    except: return False
+        if resp.status_code == 200:
+            return True, "Enviado com sucesso!"
+        else:
+            # Captura o erro EXATO que o Notion devolveu para debugar
+            return False, f"Notion recusou: {resp.json().get('message', resp.text)}"
+    except Exception as e: 
+        return False, f"Erro de rede: {e}"
 
 def consultar_leads_notion():
     if not NOTION_TOKEN or not NOTION_DATABASE_ID: return []
@@ -165,17 +170,15 @@ def atualizar_status_notion(page_id, novo_status):
         requests.patch(url, headers=headers, json=data, timeout=8)
     except: pass
 
-# ================= UI E TEMA CLARO (LIGHT THEME) =================
+# ================= UI E TEMA CLARO =================
 cor_tema = st.session_state['config_sistema']['tema_cor']
 
 st.markdown(f"""
     <style>
-    /* Fundo Branco, Texto Escuro (Alta Legibilidade) */
     .stApp {{ background-color: #F9FAFB; color: #111827; font-family: 'Segoe UI', system-ui, sans-serif; }}
     h1, h2, h3, h4, h5, p, span, label {{ color: #111827 !important; }}
     hr {{ border-color: #E5E7EB; }}
     
-    /* Campos de Digitação Seguros e Claros */
     .stTextInput>div>div>input, .stSelectbox>div>div>select, .stTextArea>div>div>textarea {{
         background-color: #FFFFFF !important; 
         color: #111827 !important;
@@ -188,24 +191,20 @@ st.markdown(f"""
     .stTextInput>div>div>input::placeholder, .stTextArea>div>div>textarea::placeholder {{ color: #9CA3AF !important; }}
     .stTextInput>div>div>input:focus, .stSelectbox>div>div>select:focus {{ border-color: {cor_tema} !important; outline: none; box-shadow: 0 0 0 2px rgba(37,99,235,0.2) !important; }}
     
-    /* Popover Selectbox */
     div[data-baseweb="select"] > div {{ background-color: #FFFFFF !important; border-color: #D1D5DB !important; color: #111827 !important; }}
     ul[data-baseweb="menu"] {{ background-color: #FFFFFF !important; border: 1px solid #D1D5DB !important; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
     ul[data-baseweb="menu"] li {{ color: #111827 !important; }}
     ul[data-baseweb="menu"] li:hover {{ background-color: #F3F4F6 !important; }}
     
-    /* Botões Modernos */
     .stButton>button {{
         background-color: {cor_tema}; color: #FFFFFF !important; border: none; border-radius: 8px; 
         width: 100%; padding: 14px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 6px rgba(37,99,235,0.2); transition: 0.2s;
     }}
     .stButton>button:hover {{ background-color: #1D4ED8; box-shadow: 0 6px 8px rgba(37,99,235,0.3); transform: translateY(-1px); }}
     
-    /* Alertas Amigáveis ao Cliente */
     .client-alert-success {{ background-color: #ECFDF5; border: 1px solid #A7F3D0; color: #065F46; padding: 16px; border-radius: 8px; font-weight: 500; text-align: center; margin-bottom: 16px; }}
     .client-alert-error {{ background-color: #FEF2F2; border: 1px solid #FECACA; color: #991B1B; padding: 16px; border-radius: 8px; font-weight: 500; text-align: center; margin-bottom: 16px; }}
     
-    /* Cartões e Badges (Área Gestão) */
     .badge-container {{ display: flex; justify-content: space-between; gap: 10px; margin-bottom: 24px; flex-wrap: wrap; }}
     .badge-box {{ flex: 1; background: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 10px; padding: 16px 10px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05); min-width: 80px; }}
     .badge-num {{ display: block; font-size: 26px; font-weight: 800; color: {cor_tema}; line-height: 1.2; }}
@@ -252,7 +251,6 @@ if st.session_state['aba_ativa'] == "📝 Nova Venda":
     cfg = st.session_state['config_sistema']
     cache = st.session_state.get('form_venda_cache', {})
 
-    # Operadora independente para forçar a renderização dinâmica dos Planos
     ops = ["Selecione o Serviço"] + list(st.session_state['planos_dinamicos'].keys())
     op_idx = ops.index(cache['f_operadora']) if 'f_operadora' in cache and cache['f_operadora'] in ops else 0
     operadora = st.selectbox("Qual serviço deseja contratar?", ops, index=op_idx, key='sel_operadora')
@@ -262,7 +260,14 @@ if st.session_state['aba_ativa'] == "📝 Nova Venda":
         st.markdown("<h4 style='color: #374151;'>Seus Dados</h4>", unsafe_allow_html=True)
         nome = st.text_input("Nome Completo", value=cache.get('f_nome', ''), placeholder="Ex: João da Silva")
         cpf = st.text_input("CPF ou CNPJ", value=cache.get('f_cpf', ''), placeholder="Apenas números")
-        whats = st.text_input("WhatsApp com DDD", value=cache.get('f_whats', ''), placeholder="Ex: 27999999999")
+        
+        # NOVOS CAMPOS ADICIONADOS AQUI
+        mae = st.text_input("Nome da Mãe", value=cache.get('f_mae', ''), placeholder="Nome completo da mãe")
+        email = st.text_input("E-mail", value=cache.get('f_email', ''), placeholder="exemplo@email.com")
+        
+        col_t1, col_t2 = st.columns(2)
+        with col_t1: whats = st.text_input("WhatsApp", value=cache.get('f_whats', ''), placeholder="Ex: 27999999999")
+        with col_t2: contato2 = st.text_input("2º Contato (Opcional)", value=cache.get('f_contato2', ''))
         
         st.markdown("<h4 style='color: #374151; margin-top: 20px;'>Endereço de Instalação</h4>", unsafe_allow_html=True)
         col_cep, col_btn = st.columns([2, 1])
@@ -272,7 +277,7 @@ if st.session_state['aba_ativa'] == "📝 Nova Venda":
             if st.form_submit_button("Buscar Endereço"):
                 dc = buscar_cep(cep)
                 if dc:
-                    st.session_state['form_venda_cache'] = {**cache, 'f_nome': nome, 'f_cpf': cpf, 'f_whats': whats, 'f_cep': cep, 'f_rua': dc.get("logradouro", ""), 'f_bairro': dc.get("bairro", ""), 'f_operadora': operadora}
+                    st.session_state['form_venda_cache'] = {**cache, 'f_nome': nome, 'f_cpf': cpf, 'f_mae': mae, 'f_email': email, 'f_whats': whats, 'f_contato2': contato2, 'f_cep': cep, 'f_rua': dc.get("logradouro", ""), 'f_bairro': dc.get("bairro", ""), 'f_operadora': operadora}
                     st.rerun()
                 else: 
                     m_erro("CEP não encontrado. Por favor, digite o endereço manualmente.")
@@ -297,7 +302,7 @@ if st.session_state['aba_ativa'] == "📝 Nova Venda":
         btn_enviar = c_sub2.form_submit_button("✅ Enviar Pedido")
 
         if btn_salvar:
-            dados_r = {"id": gerar_chave_dinamica(), "f_nome": nome, "f_cpf": cpf, "f_whats": whats, "f_cep": cep, "f_rua": rua, "f_numero": numero, "f_bairro": bairro, "f_operadora": operadora, "f_plano": plano}
+            dados_r = {"id": gerar_chave_dinamica(), "f_nome": nome, "f_cpf": cpf, "f_mae": mae, "f_email": email, "f_whats": whats, "f_contato2": contato2, "f_cep": cep, "f_rua": rua, "f_numero": numero, "f_bairro": bairro, "f_operadora": operadora, "f_plano": plano}
             for k, v in extras.items(): dados_r[f"f_{k}"] = v
             st.session_state['rascunhos_locais'].insert(0, dados_r)
             salvar_rascunhos_local()
@@ -312,7 +317,7 @@ if st.session_state['aba_ativa'] == "📝 Nova Venda":
             else:
                 linha_dados = {
                     "tipo": "venda", "acao": "inserir", "protocolo": gerar_protocolo_seguro(),
-                    "nome": nome, "cpf": cpf, "mae": "", "email": "", "whats1": whats, "whats2": "",
+                    "nome": nome, "cpf": cpf, "mae": mae, "email": email, "whats1": whats, "whats2": contato2,
                     "cep": cep, "rua": rua, "numero": numero, "bairro": bairro, "referencia": "",
                     "operadora": operadora, "plano": plano, "valor_plano": 0, "detalhes_plano": "",
                     "extra1": extras.get('extra1', ''), "extra2": extras.get('extra2', ''),
@@ -341,8 +346,12 @@ elif st.session_state['aba_ativa'] == "📞 Contato Rápido":
                 m_erro("Por favor, informe um nome e telefone válidos.")
             else:
                 with st.spinner("Enviando..."):
-                    enviar_lead_notion(nome_lead, tel_lead, obs_lead)
-                    m_ok("Agradecemos o contato! Faremos um retorno em breve.")
+                    # Aqui pegamos a mensagem exata de erro para parar de adivinhar
+                    sucesso, msg_erro_notion = enviar_lead_notion(nome_lead, tel_lead, obs_lead)
+                    if sucesso:
+                        m_ok("Agradecemos o contato! Faremos um retorno em breve.")
+                    else:
+                        m_erro(f"Não conseguimos salvar. Erro técnico: {msg_erro_notion}")
 
 # ================= ÁREA RESTRITA: GESTÃO & CRM =================
 elif st.session_state['aba_ativa'] == "🔒 Painel Interno":
@@ -385,13 +394,11 @@ elif st.session_state['aba_ativa'] == "🔒 Painel Interno":
                 cabecalho = st.session_state['crm_dados'][0]
                 linhas = st.session_state['crm_dados'][1:]
                 
-                # Mapeamento estrito por nome da coluna
                 c_map = {nome: idx for idx, nome in enumerate(cabecalho)}
                 
                 if "Protocolo" not in c_map or "Status" not in c_map:
                     st.error("Falha estrutural: As colunas 'Protocolo' ou 'Status' não foram encontradas na planilha mestre.")
                 else:
-                    # Isolamento visual (Pode ser removido depois se o Gestor for ver tudo)
                     linhas = [l for l in linhas if len(l) > c_map.get('Vendedor', 99) and str(l[c_map.get('Vendedor', 99)]) == st.session_state['vendedor_atual']]
 
                     qtd_pendentes = qtd_atencao = qtd_finalizadas = 0
@@ -513,5 +520,5 @@ elif st.session_state['aba_ativa'] == "🔒 Painel Interno":
                 if st.form_submit_button("Salvar Layout Oficial"):
                     cfg['campos_dinamicos']['extra1'] = {'ativo': st.session_state['atv_extra1'], 'nome': st.session_state['nm_extra1'], 'obrig_operadoras': st.session_state['ob_extra1']}
                     cfg['campos_dinamicos']['extra2'] = {'ativo': st.session_state['atv_extra2'], 'nome': st.session_state['nm_extra2'], 'obrig_operadoras': st.session_state['ob_extra2']}
-                    salvar_rascunhos_local() # Aproveita a função pra forçar o save no cache config tbm
+                    salvar_rascunhos_local()
                     st.success("A interface dos clientes foi atualizada com sucesso.")
