@@ -6,6 +6,7 @@ import urllib.parse
 from datetime import datetime
 from streamlit_local_storage import LocalStorage
 
+# ================= SECRETS & CONFIGURACÃO =================
 NOTION_TOKEN = st.secrets.get("notion_token")
 NOTION_DATABASE_ID = st.secrets.get("notion_database_id")
 
@@ -19,15 +20,11 @@ if 'init' not in st.session_state:
         'vendedor_atual': "Moabe",
         'rascunhos_locais': [],
         'form_venda_cache': {},
-        'config_sistema': {
-            "titulo_app": "Portal de Atendimento",
-            "tema_cor": "#2563EB", 
-            "planos": {
-                "NIO Fibra": ["500 Mega", "800 Mega"],
-                "TIM Ultrafibra": ["600 Mega", "800 Mega"],
-                "Vivo": ["Padrão"],
-                "Claro": ["Padrão"]
-            }
+        'planos_dinamicos': {
+            "NIO Fibra": ["500 Mega", "800 Mega"],
+            "TIM Ultrafibra": ["600 Mega", "800 Mega"],
+            "Vivo": ["Padrão"],
+            "Claro": ["Padrão"]
         }
     })
 
@@ -40,14 +37,15 @@ def gerar_chave():
 def salvar_local():
     try:
         dados = {"rascunhos": st.session_state['rascunhos_locais']}
-        local_storage.setItem("pap_rascunhos_v6", dados, key=gerar_chave())
+        local_storage.setItem("pap_rascunhos_v7", json.dumps(dados), key=gerar_chave())
     except: pass
 
 def carregar_local():
     try:
-        rs = local_storage.getItem("pap_rascunhos_v6")
-        if rs and isinstance(rs, dict):
-            st.session_state['rascunhos_locais'] = rs.get('rascunhos', [])
+        rs = local_storage.getItem("pap_rascunhos_v7")
+        if rs:
+            dados = json.loads(rs) if isinstance(rs, str) else rs
+            st.session_state['rascunhos_locais'] = dados.get('rascunhos', [])
     except: pass
 
 if not st.session_state.get('memoria_ok'):
@@ -59,22 +57,31 @@ def validar_cpf(doc):
     return len(d) in [11, 14]
 
 def formatar_ficha(d):
-    return f"""📄 VENDA - {d['nome']}
+    return f"""📄 *NOVA VENDA* 📄
 
-- CPF/CNPJ: {d['cpf']}
-- Mãe: {d.get('mae', 'Não informado')}
-- Email: {d.get('email', 'Não informado')}
-- WhatsApp: {d['whats1']}
-- Contato 2: {d.get('whats2', 'Não informado')}
-- Endereço: {d['rua']}, Nº {d['numero']} - {d['bairro']} (CEP: {d['cep']})
-- Operadora: {d['operadora']}
-- Plano: {d['plano']}
-- Protocolo: {d['protocolo']}"""
+👤 *CLIENTE*
+Nome: {d['nome']}
+Doc: {d['cpf']}
+Mãe: {d.get('mae', 'Não informado')}
+Email: {d.get('email', 'Não informado')}
 
-# Envio Inteligente para o Notion (Cria a Tile usando o Título padrão do banco)
-def enviar_tile_notion(titulo_tile, texto_conteudo):
+📞 *CONTATOS*
+WhatsApp: {d['whats1']}
+Contato 2: {d.get('whats2', 'Não informado')}
+
+📍 *ENDEREÇO*
+CEP: {d['cep']}
+{d['rua']}, Nº {d['numero']} - {d['bairro']}
+
+📶 *SERVIÇO*
+Operadora: {d['operadora']}
+Plano: {d['plano']}
+Protocolo: {d['protocolo']}"""
+
+# ================= FUNÇÃO NOTION TILE UNIVERSAL =================
+def enviar_tile_notion(titulo, conteudo_texto):
     if not NOTION_TOKEN or not NOTION_DATABASE_ID:
-        return False, "Chaves do Notion ausentes no secrets."
+        return False, "Chaves do Notion ausentes nos Secrets."
     
     url = "https://api.notion.com/v1/pages"
     headers = {
@@ -83,52 +90,48 @@ def enviar_tile_notion(titulo_tile, texto_conteudo):
         "Notion-Version": "2022-06-28"
     }
     
-    # Descobre qual é a chave de título padrão da base de dados dinamicamente ou usa 'title'
+    # Busca dinamicamente qual o nome da coluna de título no Notion para não dar erro
+    nome_coluna_titulo = "title"
+    try:
+        url_db = f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}"
+        r_db = requests.get(url_db, headers=headers, timeout=5)
+        if r_db.status_code == 200:
+            props = r_db.json().get("properties", {})
+            for k, v in props.items():
+                if v.get("type") == "title":
+                    nome_coluna_titulo = k
+                    break
+    except: pass
+
     data = {
         "parent": {"database_id": NOTION_DATABASE_ID},
         "properties": {
-            "title": [  # Compatível com a propriedade padrão de título do Notion
-                {"text": {"content": titulo_tile[:100]}}
-            ]
+            nome_coluna_titulo: {
+                "title": [{"text": {"content": titulo[:100]}}]
+            }
         },
         "children": [
             {
                 "object": "block",
                 "type": "paragraph",
                 "paragraph": {
-                    "rich_text": [{"type": "text", "text": {"content": texto_conteudo}}]
-                }
-            }
-        ]
-    }
-    
-    # Como o Notion às vezes exige que a propriedade de título tenha o nome exato da coluna principal,
-    # tentamos o formato padrão universal de criação de páginas em banco de dados:
-    data_alt = {
-        "parent": {"database_id": NOTION_DATABASE_ID},
-        "properties": {},
-        "children": [
-            {
-                "object": "block",
-                "type": "paragraph",
-                "paragraph": {
-                    "rich_text": [{"type": "text", "text": {"content": texto_conteudo}}]
+                    "rich_text": [{"type": "text", "text": {"content": conteudo_texto}}]
                 }
             }
         ]
     }
     
     try:
-        # Tenta injetar com título genérico na primeira coluna de texto da página
-        resp = requests.post(url, headers=headers, json=data_alt, timeout=10)
+        resp = requests.post(url, headers=headers, json=data, timeout=10)
         if resp.status_code == 200:
             return True, "Tile criada com sucesso!"
         else:
-            return False, f"Erro: {resp.json().get('message', resp.text)}"
+            msg = resp.json().get('message', resp.text)
+            return False, f"Notion recusou: {msg}"
     except Exception as e:
-        return False, f"Falha de conexão: {e}"
+        return False, f"Erro de conexão: {e}"
 
-# ================= ESTILO VISUAL LIMPO =================
+# ================= TEMA CLARO E LIMPO =================
 st.markdown("""
     <style>
     .stApp { background-color: #F9FAFB; color: #111827; font-family: 'Segoe UI', system-ui, sans-serif; }
@@ -154,15 +157,15 @@ if col2.button("📂 Rascunhos Salvos"): st.session_state['aba_ativa'] = "📂 R
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
-# ================= ABA 1: NOVA VENDA =================
+# ================= FORMULÁRIO DE VENDA =================
 if st.session_state['aba_ativa'] == "📝 Nova Venda":
     cache = st.session_state.get('form_venda_cache', {})
     
-    ops = ["Selecione"] + list(st.session_state['config_sistema']['planos'].keys())
+    ops = ["Selecione"] + list(st.session_state['planos_dinamicos'].keys())
     op_idx = ops.index(cache.get('f_operadora')) if cache.get('f_operadora') in ops else 0
     operadora = st.selectbox("Operadora", ops, index=op_idx)
     
-    planos_disponiveis = st.session_state['config_sistema']['planos'].get(operadora, []) if operadora != "Selecione" else []
+    planos_disponiveis = st.session_state['planos_dinamicos'].get(operadora, []) if operadora != "Selecione" else []
 
     with st.form("form_venda"):
         st.subheader("Dados do Cliente")
@@ -190,11 +193,11 @@ if st.session_state['aba_ativa'] == "📝 Nova Venda":
         st.markdown("<br>", unsafe_allow_html=True)
         col_b1, col_b2 = st.columns(2)
         btn_salvar = col_b1.form_submit_button("💾 Salvar Rascunho")
-        btn_enviar = col_b2.form_submit_button("🚀 Enviar para o Notion & WhatsApp")
+        btn_gerar = col_b2.form_submit_button("⚡ Enviar e Gerar Ficha")
 
         if btn_salvar:
             if not nome:
-                st.markdown('<div class="alert-err">Informe ao menos o nome do cliente para salvar o rascunho.</div>', unsafe_allow_html=True)
+                st.markdown('<div class="alert-err">Informe o nome para guardar o rascunho.</div>', unsafe_allow_html=True)
             else:
                 novo_rascunho = {
                     "id": gerar_chave(), "f_nome": nome, "f_cpf": cpf, "f_mae": mae,
@@ -204,13 +207,13 @@ if st.session_state['aba_ativa'] == "📝 Nova Venda":
                 }
                 st.session_state['rascunhos_locais'].insert(0, novo_rascunho)
                 salvar_local()
-                st.markdown('<div class="alert-ok">Rascunho salvo com segurança no aparelho!</div>', unsafe_allow_html=True)
+                st.markdown('<div class="alert-ok">Rascunho salvo no celular!</div>', unsafe_allow_html=True)
 
-        if btn_enviar:
+        if btn_gerar:
             if not nome or not cpf or operadora == "Selecione" or plano == "Selecione":
                 st.markdown('<div class="alert-err">Preencha Nome, CPF, Operadora e Plano.</div>', unsafe_allow_html=True)
             elif not validar_cpf(cpf):
-                st.markdown('<div class="alert-err">O CPF/CNPJ parece estar incorreto.</div>', unsafe_allow_html=True)
+                st.markdown('<div class="alert-err">CPF/CNPJ incorreto.</div>', unsafe_allow_html=True)
             else:
                 dados_ficha = {
                     "protocolo": gerar_protocolo(), "nome": nome, "cpf": cpf, "mae": mae,
@@ -220,35 +223,29 @@ if st.session_state['aba_ativa'] == "📝 Nova Venda":
                 }
                 
                 texto_final = formatar_ficha(dados_ficha)
+                titulo_tile = f"{nome} - {operadora} ({plano})"
                 
-                # Dispara direto para o Notion criar a Tile
-                with st.spinner("Enviando tile para o Notion..."):
-                    sucesso_n, msg_n = enviar_lead_notion_simples = enviar_tile_notion(f"Venda: {nome} ({operadora})", texto_final)
+                with st.spinner("Criando tile no Notion..."):
+                    ok_n, msg_n = enviar_tile_notion(titulo_tile, texto_final)
                 
-                if sucesso_n or True: # Garante fluxo mesmo se houver pequeno ajuste de base
-                    st.markdown('<div class="alert-ok">Pedido processado! Ficha gerada com sucesso.</div>', unsafe_allow_html=True)
-                    st.code(texto_final, language="text")
-                    
-                    link_wpp = f"https://api.whatsapp.com/send?text={urllib.parse.quote_plus(texto_final)}"
-                    st.markdown(f'<a href="{link_wpp}" target="_blank"><button style="background-color: #25D366; color: #FFF; width: 100%; border: none; padding: 14px; border-radius: 8px; font-weight: bold; font-size: 16px; text-align: center; display: block; text-decoration: none;">📲 Enviar Ficha para o Backoffice</button></a>', unsafe_allow_html=True)
+                if ok_n:
+                    st.markdown('<div class="alert-ok">✅ Venda enviada ao Notion! Ficha gerada abaixo:</div>', unsafe_allow_html=True)
                 else:
-                    st.markdown(f'<div class="alert-err">Erro ao criar tile no Notion: {msg_n}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="alert-err">⚠️ {msg_n}</div>', unsafe_allow_html=True)
 
-# ================= ABA 2: RASCUNHOS =================
+                st.code(texto_final, language="text")
+                
+                link_wpp = f"https://api.whatsapp.com/send?text={urllib.parse.quote_plus(texto_final)}"
+                st.markdown(f'<a href="{link_wpp}" target="_blank"><button style="background-color: #25D366; color: #FFF; width: 100%; border: none; padding: 14px; border-radius: 8px; font-weight: bold; font-size: 16px; text-align: center; display: block; text-decoration: none;">📲 Enviar Ficha para o Backoffice</button></a>', unsafe_allow_html=True)
+
+# ================= RASCUNHOS =================
 elif st.session_state['aba_ativa'] == "📂 Rascunhos":
-    st.subheader("Rascunhos Salvos no Aparelho")
-    
+    st.subheader("Rascunhos no Aparelho")
     if not st.session_state['rascunhos_locais']:
-        st.info("Nenhum rascunho salvo no momento.")
+        st.info("Nenhum rascunho salvo.")
     else:
         for r in list(st.session_state['rascunhos_locais']):
-            st.markdown(f"""
-                <div style="background: #FFFFFF; border: 1px solid #E5E7EB; padding: 15px; border-radius: 8px; margin-bottom: 10px;">
-                    <strong>{r.get('f_nome')}</strong> - {r.get('f_operadora')} ({r.get('f_plano')})<br>
-                    <span style="color: #6B7280; font-size: 13px;">Tel: {r.get('f_whats1')} | CPF: {r.get('f_cpf')}</span>
-                </div>
-            """, unsafe_allow_html=True)
-            
+            st.markdown(f"**{r.get('f_nome')}** - {r.get('f_operadora')} | Tel: {r.get('f_whats1')}")
             c_a1, c_a2 = st.columns(2)
             if c_a1.button("Carregar", key=f"load_{r['id']}"):
                 st.session_state['form_venda_cache'] = r
