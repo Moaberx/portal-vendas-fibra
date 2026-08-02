@@ -114,13 +114,12 @@ CEP: {d['cep']}
 📶 *SERVIÇO*
 Operadora: {d['operadora']}
 Plano: {d['plano']}
-
 Protocolo: {d.get('protocolo', '')}"""
 
-# ================= NOTION (CAMISA 10) =================
-def criar_notion(dados, texto):
+# --- INTEGRAÇÃO NOTION OFICIAL (MAPA PAP) ---
+def criar_ficha_notion(nome, telefone, texto_ficha, status_notion="Não iniciada"):
     if not NOTION_TOKEN or not NOTION_DATABASE_ID:
-        return False, "Notion não configurado"
+        return False, "Chaves do Notion ausentes no secrets."
     
     url = "https://api.notion.com/v1/pages"
     headers = {
@@ -129,30 +128,47 @@ def criar_notion(dados, texto):
         "Notion-Version": "2022-06-28"
     }
     
-    tel = re.sub(r'[^0-9+]', '', str(dados.get('w1', '')))[:20]
-    
-    payload = {
+    # 1. Tratamento seguro de data e telefone
+    data_hoje = datetime.now().strftime("%Y-%m-%d")
+    telefone_limpo = re.sub(r'[^0-9+]', '', str(telefone))[:20] if telefone else ""
+
+    # 2. Estrutura Oficial do Banco de Dados + Corpo da Página
+    data = {
         "parent": {"database_id": NOTION_DATABASE_ID},
         "properties": {
-            "Nome": {"title": [{"text": {"content": str(dados.get('nome', ''))[:100]}}]},
-            "Status": {"status": {"name": "Nova"}},
-            "Telefone": {"phone_number": tel},
-            "Data": {"date": {"start": datetime.now().strftime("%Y-%m-%d")}}
-        },
-        "children": [{
-            "object": "block",
-            "type": "paragraph",
-            "paragraph": {
-                "rich_text": [{"type": "text", "text": {"content": texto[:2000]}}]
+            "Nome": {
+                "title": [{"text": {"content": str(nome)[:100]}}]
+            },
+            "Status": {
+                "status": {"name": status_notion}
+            },
+            "Telefone": {
+                "phone_number": telefone_limpo
+            },
+            "Data": {
+                "date": {"start": data_hoje}
             }
-        }]
+        },
+        "children": [
+            {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [{"type": "text", "text": {"content": texto_ficha}}]
+                }
+            }
+        ]
     }
     
+    # 3. Disparo com proteção de queda de rede
     try:
-        r = requests.post(url, headers=headers, json=payload, timeout=10)
-        return (True, "OK") if r.status_code == 200 else (False, r.text[:300])
+        resp = requests.post(url, headers=headers, json=data, timeout=8)
+        if resp.status_code == 200:
+            return True, "Ficha salva com sucesso no Notion!"
+        else:
+            return False, f"Notion recusou: {resp.json().get('message', resp.text)}"
     except Exception as e:
-        return False, str(e)
+        return False, f"Erro de conexão: {e}"
 
 # ================= GOOGLE SHEETS (GOLEIRO) =================
 def api_sheets(payload):
@@ -248,7 +264,7 @@ def tela_cliente():
     
     planos = st.session_state.planos.get(operadora, ["Selecione a operadora"]) if operadora != "Selecione" else ["Selecione a operadora"]
     plano = st.selectbox("Plano *", planos)
-
+    
     st.write("")
     
     # BOTÃO FINAL
@@ -307,7 +323,8 @@ def tela_cliente():
 
             with st.spinner("Registrando de forma segura nos sistemas..."):
                 sheets_ok = api_sheets(payload)
-                notion_ok, notion_msg = criar_notion(dados, ficha)
+                # Chamando a sua versão do Notion (Camisa 10)
+                notion_ok, notion_msg = criar_ficha_notion(dados["nome"], dados["w1"], ficha, status_notion="Nova")
 
             # Feedback resiliente
             if sheets_ok and notion_ok:
