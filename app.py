@@ -6,7 +6,6 @@ import urllib.parse
 from datetime import datetime
 from streamlit_local_storage import LocalStorage
 
-# ================= SECRETS & CONFIGURACÃO =================
 NOTION_TOKEN = st.secrets.get("notion_token")
 NOTION_DATABASE_ID = st.secrets.get("notion_database_id")
 
@@ -17,7 +16,6 @@ if 'init' not in st.session_state:
     st.session_state.update({
         'init': True,
         'aba_ativa': "📝 Nova Venda",
-        'vendedor_atual': "Moabe",
         'rascunhos_locais': [],
         'form_venda_cache': {},
         'planos_dinamicos': {
@@ -28,29 +26,35 @@ if 'init' not in st.session_state:
         }
     })
 
-def gerar_protocolo():
-    return f"ID-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-
 def gerar_chave():
     return f"key_{datetime.now().timestamp()}"
 
 def salvar_local():
     try:
         dados = {"rascunhos": st.session_state['rascunhos_locais']}
-        local_storage.setItem("pap_rascunhos_v7", json.dumps(dados), key=gerar_chave())
+        local_storage.setItem("pap_rascunhos_v9", dados, key=gerar_chave())
     except: pass
 
 def carregar_local():
     try:
-        rs = local_storage.getItem("pap_rascunhos_v7")
-        if rs:
-            dados = json.loads(rs) if isinstance(rs, str) else rs
-            st.session_state['rascunhos_locais'] = dados.get('rascunhos', [])
+        rs = local_storage.getItem("pap_rascunhos_v9")
+        if rs and isinstance(rs, dict):
+            st.session_state['rascunhos_locais'] = rs.get('rascunhos', [])
     except: pass
 
 if not st.session_state.get('memoria_ok'):
     carregar_local()
     st.session_state['memoria_ok'] = True
+
+def buscar_cep(cep):
+    cep_limpo = re.sub(r'[^0-9]', '', str(cep))
+    if len(cep_limpo) == 8:
+        try:
+            r = requests.get(f"https://viacep.com.br/ws/{cep_limpo}/json/", timeout=4)
+            if r.status_code == 200 and "erro" not in r.json():
+                return r.json()
+        except: pass
+    return None
 
 def validar_cpf(doc):
     d = re.sub(r'[^0-9]', '', str(doc))
@@ -75,13 +79,12 @@ CEP: {d['cep']}
 
 📶 *SERVIÇO*
 Operadora: {d['operadora']}
-Plano: {d['plano']}
-Protocolo: {d['protocolo']}"""
+Plano: {d['plano']}"""
 
-# ================= FUNÇÃO NOTION TILE UNIVERSAL =================
-def enviar_tile_notion(titulo, conteudo_texto):
+# Envio Direto e Flexível para o Notion (Cria a Tile sem travar em colunas)
+def criar_tile_notion(titulo, texto_livre):
     if not NOTION_TOKEN or not NOTION_DATABASE_ID:
-        return False, "Chaves do Notion ausentes nos Secrets."
+        return False, "Chaves do Notion ausentes no secrets."
     
     url = "https://api.notion.com/v1/pages"
     headers = {
@@ -90,23 +93,21 @@ def enviar_tile_notion(titulo, conteudo_texto):
         "Notion-Version": "2022-06-28"
     }
     
-    # Busca dinamicamente qual o nome da coluna de título no Notion para não dar erro
-    nome_coluna_titulo = "title"
+    # Descobre o nome da coluna de título principal do banco de dados dinamicamente
+    coluna_titulo = "title"
     try:
-        url_db = f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}"
-        r_db = requests.get(url_db, headers=headers, timeout=5)
+        r_db = requests.get(f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}", headers=headers, timeout=5)
         if r_db.status_code == 200:
-            props = r_db.json().get("properties", {})
-            for k, v in props.items():
+            for k, v in r_db.json().get("properties", {}).items():
                 if v.get("type") == "title":
-                    nome_coluna_titulo = k
+                    coluna_titulo = k
                     break
     except: pass
 
     data = {
         "parent": {"database_id": NOTION_DATABASE_ID},
         "properties": {
-            nome_coluna_titulo: {
+            coluna_titulo: {
                 "title": [{"text": {"content": titulo[:100]}}]
             }
         },
@@ -115,23 +116,22 @@ def enviar_tile_notion(titulo, conteudo_texto):
                 "object": "block",
                 "type": "paragraph",
                 "paragraph": {
-                    "rich_text": [{"type": "text", "text": {"content": conteudo_texto}}]
+                    "rich_text": [{"type": "text", "text": {"content": texto_livre}}]
                 }
             }
         ]
     }
     
     try:
-        resp = requests.post(url, headers=headers, json=data, timeout=10)
+        resp = requests.post(url, headers=headers, json=data, timeout=8)
         if resp.status_code == 200:
             return True, "Tile criada com sucesso!"
         else:
-            msg = resp.json().get('message', resp.text)
-            return False, f"Notion recusou: {msg}"
+            return False, f"Notion recusou: {resp.json().get('message', resp.text)}"
     except Exception as e:
-        return False, f"Erro de conexão: {e}"
+        return False, f"Erro: {e}"
 
-# ================= TEMA CLARO E LIMPO =================
+# ================= ESTILO LIMPO =================
 st.markdown("""
     <style>
     .stApp { background-color: #F9FAFB; color: #111827; font-family: 'Segoe UI', system-ui, sans-serif; }
@@ -149,15 +149,16 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("Portal de Atendimento")
+st.title("Portal de Vendas")
 
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 if col1.button("📝 Fazer Pedido"): st.session_state['aba_ativa'] = "📝 Nova Venda"; st.rerun()
-if col2.button("📂 Rascunhos Salvos"): st.session_state['aba_ativa'] = "📂 Rascunhos"; st.rerun()
+if col2.button("📞 Contato / Alerta"): st.session_state['aba_ativa'] = "📞 Contato Rápido"; st.rerun()
+if col3.button("📂 Rascunhos"): st.session_state['aba_ativa'] = "📂 Rascunhos"; st.rerun()
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
-# ================= FORMULÁRIO DE VENDA =================
+# ================= ABA 1: NOVA VENDA =================
 if st.session_state['aba_ativa'] == "📝 Nova Venda":
     cache = st.session_state.get('form_venda_cache', {})
     
@@ -179,12 +180,23 @@ if st.session_state['aba_ativa'] == "📝 Nova Venda":
         whats2 = c_w2.text_input("2º Contato (Opcional)", value=cache.get('f_whats2', ''))
 
         st.subheader("Endereço")
-        cep = st.text_input("CEP", value=cache.get('f_cep', ''))
-        rua = st.text_input("Rua / Avenida", value=cache.get('f_rua', ''))
+        c_cep, c_btn = st.columns([2, 1])
+        cep = c_cep.text_input("CEP", value=cache.get('f_cep', ''))
+        buscar_clicado = c_btn.form_submit_button("🔍 Buscar CEP")
         
+        rua_val = cache.get('f_rua', '')
+        bairro_val = cache.get('f_bairro', '')
+        
+        if buscar_clicado:
+            dados_cep = buscar_cep(cep)
+            if dados_cep:
+                rua_val = dados_cep.get("logradouro", "")
+                bairro_val = dados_cep.get("bairro", "")
+
+        rua = st.text_input("Rua / Avenida", value=rua_val)
         c_n, c_b = st.columns([1, 2])
         numero = c_n.text_input("Número", value=cache.get('f_numero', ''))
-        bairro = c_b.text_input("Bairro", value=cache.get('f_bairro', ''))
+        bairro = c_b.text_input("Bairro", value=bairro_val)
 
         lista_p = ["Selecione"] + planos_disponiveis
         pl_idx = lista_p.index(cache.get('f_plano')) if cache.get('f_plano') in lista_p else 0
@@ -193,11 +205,11 @@ if st.session_state['aba_ativa'] == "📝 Nova Venda":
         st.markdown("<br>", unsafe_allow_html=True)
         col_b1, col_b2 = st.columns(2)
         btn_salvar = col_b1.form_submit_button("💾 Salvar Rascunho")
-        btn_gerar = col_b2.form_submit_button("⚡ Enviar e Gerar Ficha")
+        btn_gerar = col_b2.form_submit_button("⚡ Gerar Ficha WhatsApp")
 
         if btn_salvar:
             if not nome:
-                st.markdown('<div class="alert-err">Informe o nome para guardar o rascunho.</div>', unsafe_allow_html=True)
+                st.markdown('<div class="alert-err">Informe ao menos o nome.</div>', unsafe_allow_html=True)
             else:
                 novo_rascunho = {
                     "id": gerar_chave(), "f_nome": nome, "f_cpf": cpf, "f_mae": mae,
@@ -216,29 +228,41 @@ if st.session_state['aba_ativa'] == "📝 Nova Venda":
                 st.markdown('<div class="alert-err">CPF/CNPJ incorreto.</div>', unsafe_allow_html=True)
             else:
                 dados_ficha = {
-                    "protocolo": gerar_protocolo(), "nome": nome, "cpf": cpf, "mae": mae,
-                    "email": email, "whats1": whats1, "whats2": whats2, "cep": cep,
-                    "rua": rua, "numero": numero, "bairro": bairro,
-                    "operadora": operadora, "plano": plano
+                    "nome": nome, "cpf": cpf, "mae": mae, "email": email,
+                    "whats1": whats1, "whats2": whats2, "cep": cep, "rua": rua,
+                    "numero": numero, "bairro": bairro, "operadora": operadora, "plano": plano
                 }
                 
                 texto_final = formatar_ficha(dados_ficha)
-                titulo_tile = f"{nome} - {operadora} ({plano})"
-                
-                with st.spinner("Criando tile no Notion..."):
-                    ok_n, msg_n = enviar_tile_notion(titulo_tile, texto_final)
-                
-                if ok_n:
-                    st.markdown('<div class="alert-ok">✅ Venda enviada ao Notion! Ficha gerada abaixo:</div>', unsafe_allow_html=True)
-                else:
-                    st.markdown(f'<div class="alert-err">⚠️ {msg_n}</div>', unsafe_allow_html=True)
-
+                st.markdown('<div class="alert-ok">Ficha gerada com sucesso!</div>', unsafe_allow_html=True)
                 st.code(texto_final, language="text")
                 
                 link_wpp = f"https://api.whatsapp.com/send?text={urllib.parse.quote_plus(texto_final)}"
                 st.markdown(f'<a href="{link_wpp}" target="_blank"><button style="background-color: #25D366; color: #FFF; width: 100%; border: none; padding: 14px; border-radius: 8px; font-weight: bold; font-size: 16px; text-align: center; display: block; text-decoration: none;">📲 Enviar Ficha para o Backoffice</button></a>', unsafe_allow_html=True)
 
-# ================= RASCUNHOS =================
+# ================= ABA 2: CONTATO / ALERTA (NOTION TILE DIRETA) =================
+elif st.session_state['aba_ativa'] == "📞 Contato Rápido":
+    st.subheader("Criar Tile de Contato / Alerta no Notion")
+    st.markdown("Escreva o que quiser abaixo. Ao enviar, vira um cartão (tile) limpo lá no seu Notion sem regras engessadas.")
+
+    with st.form("form_tile_livre"):
+        titulo_tile = st.text_input("Título do Cartão", placeholder="Ex: Retornar para João - Bairro Serra")
+        conteudo_tile = st.text_area("Anotação / Alerta / Dados Livres", placeholder="Digite livremente o que precisar lembrar ou abordar...")
+        
+        btn_enviar_notion = st.form_submit_button("🚀 Enviar Tile para o Notion")
+        
+        if btn_enviar_notion:
+            if not titulo_tile or not conteudo_tile:
+                st.markdown('<div class="alert-err">Preencha o título e o conteúdo da tile.</div>', unsafe_allow_html=True)
+            else:
+                with st.spinner("Criando tile no Notion..."):
+                    ok, msg = criar_tile_notion(titulo_tile, conteudo_tile)
+                    if ok:
+                        st.markdown('<div class="alert-ok">✅ Tile criada e salva com sucesso no Notion!</div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'<div class="alert-err">⚠️ Erro ao criar tile: {msg}</div>', unsafe_allow_html=True)
+
+# ================= ABA 3: RASCUNHOS =================
 elif st.session_state['aba_ativa'] == "📂 Rascunhos":
     st.subheader("Rascunhos no Aparelho")
     if not st.session_state['rascunhos_locais']:
