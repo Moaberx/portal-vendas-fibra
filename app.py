@@ -18,7 +18,7 @@ except Exception:
     NOTION_TOKEN = ""
     NOTION_DATABASE_ID = ""
 
-st.set_page_config(page_title="PAP Fibra", page_icon="📶", layout="centered")
+st.set_page_config(page_title="PAP Fibra V3", page_icon="📶", layout="centered")
 local_storage = LocalStorage()
 
 # ================= ESTADO INICIAL =================
@@ -33,7 +33,7 @@ if 'init' not in st.session_state:
         'modo_gestao_liberado': False,
         'form_venda_cache': {},
         'config_sistema': {
-            "titulo_app": "PAP Fibra",
+            "titulo_app": "PAP Fibra Express",
             "tema_cor": "#3B82F6",
             "pedir_email": True,
             "obrigatorio_email": True,
@@ -51,13 +51,17 @@ if 'init' not in st.session_state:
     })
 
 # ================= FUNÇÕES AUXILIARES =================
-def gerar_chave_id(prefixo):
-    return f"{prefixo}_{datetime.now().strftime('%H%M%S%f')}"
+def gerar_protocolo():
+    # ID Único baseado em Data/Hora exata do envio
+    return datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+
+def gerar_chave_local():
+    return f"id_{datetime.now().strftime('%H%M%S%f')}"
 
 def blindar_texto(texto):
     if not isinstance(texto, str): return texto
     t = texto.strip()
-    if t[:1] in ("=", "+", "-", "@"): return "'" + t
+    if t.startswith(("=", "+", "-", "@")): return "'" + t
     return t
 
 def salvar_memoria_local():
@@ -67,13 +71,13 @@ def salvar_memoria_local():
         "config": st.session_state['config_sistema']
     }
     try:
-        local_storage.setItem("pap_memoria_v5", json.dumps(dados), key="write_memoria_unica")
-    except Exception:
-        pass
+        local_storage.setItem("pap_memoria_v3", json.dumps(dados))
+    except Exception as e:
+        st.toast(f"Aviso: Não foi possível salvar o cache no aparelho. Erro: {e}")
 
-# --- ESCUDO ANTI-LOOP DE CACHE ---
+# --- ESCUDO ANTI-LOOP DE CACHE COM ESCAPE ---
 if not st.session_state.get('memoria_carregada'):
-    memoria_bruta = local_storage.getItem("pap_memoria_v5")
+    memoria_bruta = local_storage.getItem("pap_memoria_v3")
     
     if memoria_bruta is not None:
         if memoria_bruta != "":
@@ -84,14 +88,14 @@ if not st.session_state.get('memoria_carregada'):
                     st.session_state['rascunhos_locais'] = dados_salvos.get('rascunhos', [])
                     if 'config' in dados_salvos:
                         st.session_state['config_sistema'] = dados_salvos['config']
-            except Exception:
-                pass
+            except Exception as e:
+                st.error(f"Erro ao processar memória local: {e}")
                 
         st.session_state['memoria_carregada'] = True
         st.rerun()
     else:
         st.markdown("<h3 style='text-align: center; margin-top: 40px; color: #E5E5E5;'>⏳ Sincronizando Cache...</h3>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #888;'>Se esta tela travar por mais de 3 segundos, seu navegador bloqueou a leitura automática.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #888;'>Aguardando o navegador. Se travar, force a entrada abaixo.</p>", unsafe_allow_html=True)
         
         col_space1, col_btn, col_space2 = st.columns([1, 2, 1])
         with col_btn:
@@ -101,9 +105,9 @@ if not st.session_state.get('memoria_carregada'):
         st.stop()
 
 # --- INTEGRAÇÃO NOTION (BLOCO DE NOTAS / LEADS) ---
-def enviar_nota_notion(titulo, texto):
+def enviar_nota_notion(titulo, texto, telefone):
     if not NOTION_TOKEN or not NOTION_DATABASE_ID:
-        return False, "Chaves do Notion não configuradas nos Secrets."
+        return False, "⚠️ Notion não configurado nos Secrets."
     
     url = "https://api.notion.com/v1/pages"
     headers = {
@@ -113,6 +117,7 @@ def enviar_nota_notion(titulo, texto):
     }
     
     titulo_resumo = titulo[:50] if titulo else "Anotação PAP Fibra"
+    conteudo_completo = f"Telefone: {telefone}\n\n{texto}" if telefone else texto
     
     data = {
         "parent": {"database_id": NOTION_DATABASE_ID},
@@ -126,20 +131,20 @@ def enviar_nota_notion(titulo, texto):
                 "object": "block",
                 "type": "paragraph",
                 "paragraph": {
-                    "rich_text": [{"type": "text", "text": {"content": texto}}]
+                    "rich_text": [{"type": "text", "text": {"content": conteudo_completo}}]
                 }
             }
         ]
     }
     
     try:
-        response = requests.post(url, headers=headers, json=data)
+        response = requests.post(url, headers=headers, json=data, timeout=10)
         if response.status_code == 200:
-            return True, "Nota salva na nuvem!"
+            return True, "Nota salva na nuvem com sucesso!"
         else:
-            return False, f"Erro Notion: {response.status_code}"
-    except Exception as e:
-        return False, f"Falha de conexão com Notion."
+            return False, f"Erro Notion: {response.status_code} - {response.text}"
+    except requests.exceptions.RequestException as e:
+        return False, f"Falha de rede ao conectar com Notion: {e}"
 
 # --- VALIDAÇÃO DE CPF E CNPJ ---
 def validar_cpf_cnpj(documento):
@@ -174,7 +179,8 @@ def buscar_cep(cep):
         if r.status_code == 200 and "erro" not in r.json():
             return r.json()
         return None
-    except requests.exceptions.RequestException:
+    except requests.exceptions.RequestException as e:
+        st.error(f"Falha na rede ao buscar CEP: {e}")
         return "erro_conexao"
 
 # --- API GOOGLE ---
@@ -184,9 +190,9 @@ def api_google(payload):
         if r.status_code == 200: return r.json()
         return {"status": "erro", "msg": f"O servidor respondeu com código {r.status_code}."}
     except requests.exceptions.Timeout:
-        return {"status": "erro", "msg": "Tempo de conexão esgotado."}
-    except requests.exceptions.RequestException:
-        return {"status": "erro", "msg": "Falha na conexão com o servidor."}
+        return {"status": "erro", "msg": "Tempo de conexão esgotado. A internet pode estar fraca."}
+    except requests.exceptions.RequestException as e:
+        return {"status": "erro", "msg": f"Falha na conexão: {e}"}
     except ValueError:
         return {"status": "erro", "msg": "Resposta inválida do servidor."}
 
@@ -219,12 +225,7 @@ st.markdown(f"""
     .tile-card {{ border-radius: 10px; padding: 16px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }}
     .tile-card h4 {{ margin: 0 0 5px 0; color: #000 !important; font-size: 18px; font-weight: 800; }}
     .tile-card p {{ margin: 0; font-size: 14px; font-weight: 600; opacity: 0.8; color: #000 !important; }}
-    .badge-container {{ display: flex; justify-content: space-between; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }}
-    .badge-box {{ flex: 1; background: #171717; border: 1px solid #333; border-radius: 8px; padding: 10px; text-align: center; min-width: 70px; }}
-    .badge-num {{ display: block; font-size: 22px; font-weight: bold; color: {cor_tema}; }}
-    .badge-label {{ font-size: 11px; color: #888 !important; text-transform: uppercase; }}
     .crm-row {{ background: #171717; border-left: 4px solid #333; padding: 15px; margin-bottom: 10px; border-radius: 6px; }}
-    .crm-row.lead {{ border-left-color: #FCD34D; }}
     .crm-row.atencao {{ border-left-color: #EF4444; }}
     .crm-row.finalizada {{ border-left-color: #10B981; }}
     .crm-row.perdida {{ border-left-color: #6B7280; opacity: 0.6; }}
@@ -239,43 +240,8 @@ def m_erro(t): st.markdown(f'<div class="msg-box msg-erro">❌ {t}</div>', unsaf
 def m_ok(t): st.markdown(f'<div class="msg-box msg-ok">✅ {t}</div>', unsafe_allow_html=True)
 def m_info(t): st.markdown(f'<div class="msg-box msg-info">ℹ️ {t}</div>', unsafe_allow_html=True)
 
-# ================= CÁLCULO DOS INDICADORES =================
-qtd_rascunhos = len(st.session_state['rascunhos_locais'])
-qtd_leads_locais = len(st.session_state['leads_locais'])
-qtd_pendentes = qtd_atencao = qtd_finalizadas = qtd_leads_crm = 0
-aviso_colunas = None
-
-if st.session_state['crm_dados']:
-    cabecalho = st.session_state['crm_dados'][0]
-    linhas = st.session_state['crm_dados'][1:]
-
-    if "Vendedor" not in cabecalho or "Status" not in cabecalho:
-        aviso_colunas = "As colunas 'Vendedor' ou 'Status' não foram encontradas na planilha."
-    else:
-        idx_vendedor = cabecalho.index("Vendedor")
-        idx_status = cabecalho.index("Status")
-        linhas_vendedor = [l for l in linhas if len(l) > idx_vendedor and l[idx_vendedor] == st.session_state['vendedor_atual']]
-        for l in linhas_vendedor:
-            if len(l) > idx_status:
-                stt = str(l[idx_status]).strip().lower()
-                if stt == "lead": qtd_leads_crm += 1
-                elif stt in ["pendente", "nova"]: qtd_pendentes += 1
-                elif stt == "atenção": qtd_atencao += 1
-                elif stt == "instalada": qtd_finalizadas += 1
-
-st.markdown(f"""
-    <div class="badge-container">
-        <div class="badge-box"><span class="badge-num">{qtd_leads_locais}</span><span class="badge-label">Notas/Leads</span></div>
-        <div class="badge-box"><span class="badge-num">{qtd_rascunhos}</span><span class="badge-label">Rascunhos</span></div>
-        <div class="badge-box"><span class="badge-num">{qtd_pendentes}</span><span class="badge-label">Pendentes</span></div>
-        <div class="badge-box" style="border-color:#EF4444;"><span class="badge-num" style="color:#EF4444;">{qtd_atencao}</span><span class="badge-label">Atenção</span></div>
-        <div class="badge-box" style="border-color:#10B981;"><span class="badge-num" style="color:#10B981;">{qtd_finalizadas}</span><span class="badge-label">Fim</span></div>
-    </div>
-""", unsafe_allow_html=True)
-if aviso_colunas: m_erro(aviso_colunas)
-
-# ================= NAVEGAÇÃO =================
-st.title(f"📶 {st.session_state['config_sistema'].get('titulo_app', 'PAP Fibra')}")
+# ================= ROTEADOR PRINCIPAL =================
+st.title(f"📶 {st.session_state['config_sistema'].get('titulo_app', 'PAP Fibra V3')}")
 
 col_nav1, col_nav2, col_nav3, col_nav4 = st.columns(4)
 if col_nav1.button("📝 Venda"): st.session_state['aba_ativa'] = "Nova Venda"; st.rerun()
@@ -285,29 +251,25 @@ if col_nav4.button("⚙️ Admin"): st.session_state['aba_ativa'] = "Admin"; st.
 
 st.markdown("---")
 
-# ================= MÓDULO 1: LEADS & NOTAS (INTEGRADO) =================
+# ================= MÓDULO 1: LEADS & NOTAS (RUA - SEM SENHA) =================
 if st.session_state['aba_ativa'] == "Leads":
-    st.markdown("<h3 style='text-align: center;'>☁️ Bloco de Notas & Leads</h3>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #888; font-size: 14px; margin-bottom: 30px;'>Crie post-its coloridos de contatos. Tudo é salvo no seu celular, enviado para o seu CRM e tem backup no Notion.</p>", unsafe_allow_html=True)
-
-    if not NOTION_TOKEN or not NOTION_DATABASE_ID:
-        m_info("⚠️ O Notion não está configurado nos Secrets. Os leads serão salvos apenas no celular e no Google Sheets.")
+    st.markdown("<h3 style='text-align: center;'>☁️ Bloco de Notas Express</h3>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #888; font-size: 14px; margin-bottom: 30px;'>Crie post-its coloridos. Fica salvo no seu aparelho e tem backup no Notion.</p>", unsafe_allow_html=True)
 
     with st.form("form_novo_lead", clear_on_submit=True):
         c1, c2 = st.columns([3, 2])
-        nome_l = c1.text_input("Nome do Contato ou Título da Nota")
+        nome_l = c1.text_input("Nome do Contato ou Título")
         whats_l = c2.text_input("WhatsApp (Opcional)")
-        anotacao_l = st.text_area("Anotações, Script ou Detalhes Rápidos", height=100)
-        cor_l = st.color_picker("Cor de Destaque do Post-it", "#FCD34D")
+        anotacao_l = st.text_area("Anotações, Script ou Ideia", height=100)
+        cor_l = st.color_picker("Cor do Post-it", "#FCD34D")
 
         st.markdown("<br>", unsafe_allow_html=True)
-        btn_salvar_lead = st.form_submit_button("🚀 Salvar Post-it e Enviar para Nuvem")
+        btn_salvar_lead = st.form_submit_button("🚀 Fixar e Enviar para o Notion")
 
         if btn_salvar_lead:
             if nome_l:
-                novo_id = gerar_chave_id('ld')
+                novo_id = gerar_chave_local()
                 
-                # 1. Salva na Memória Local (Post-it)
                 st.session_state['leads_locais'].insert(0, {
                     "id": novo_id,
                     "nome": nome_l,
@@ -318,32 +280,19 @@ if st.session_state['aba_ativa'] == "Leads":
                 })
                 salvar_memoria_local()
                 
-                # 2. Envia para o Google Sheets (CRM)
-                texto_obs = f"{anotacao_l} [Criado via Bloco de Notas]" if anotacao_l else "Lead criado no aplicativo local."
-                payload_lead = {
-                    "tipo": "venda", "acao": "inserir", "protocolo": novo_id,
-                    "nome": blindar_texto(nome_l), "cpf": "", "mae": "", "email": "",
-                    "whats1": blindar_texto(whats_l), "whats2": "",
-                    "cep": "", "rua": "", "numero": "", "bairro": "", "referencia": "",
-                    "operadora": "N/A", "plano": "N/A", "valor_plano": 0, "detalhes_plano": "",
-                    "extra1": "", "extra2": "",
-                    "status": "Lead", "obs": blindar_texto(texto_obs), "vendedor": st.session_state['vendedor_atual']
-                }
-                api_google(payload_lead) # Fundo invisível
-                
-                # 3. Envia para o Notion (Backup Extra)
-                if NOTION_TOKEN and NOTION_DATABASE_ID:
-                    conteudo_notion = f"WhatsApp: {whats_l}\n\n{anotacao_l}"
-                    sucesso_notion, msg_notion = enviar_nota_notion(nome_l, conteudo_notion)
-                    if not sucesso_notion:
-                        st.toast(msg_notion)
+                # Backup Exclusivo no Notion
+                sucesso_notion, msg_notion = enviar_nota_notion(nome_l, anotacao_l, whats_l)
+                if sucesso_notion:
+                    st.toast(msg_notion)
+                else:
+                    st.error(msg_notion)
                 
                 st.rerun()
             else:
-                m_erro("Informe ao menos o nome do contato ou título da nota.")
+                m_erro("Informe ao menos o nome ou título.")
 
     if not st.session_state['leads_locais']:
-        st.caption("Nenhum post-it registrado no seu aparelho.")
+        st.caption("Nenhum post-it registrado no aparelho.")
 
     for lead in st.session_state['leads_locais']:
         st.markdown(f"""
@@ -357,11 +306,12 @@ if st.session_state['aba_ativa'] == "Leads":
         c_btn1, c_btn2 = st.columns(2)
         if c_btn1.button("Transformar em Venda", key=f"cvt_{lead['id']}"):
             st.session_state['form_venda_cache'] = {
-                "f_protocolo": lead['id'], 
+                "f_protocolo": gerar_protocolo(), # Garante ID de tempo para conversão
                 "f_nome": lead['nome'], 
                 "f_whats": lead.get('telefone', ''),
                 "f_obs": lead.get('anotacao', '')
             }
+            # Apaga lead pois virou Venda
             st.session_state['leads_locais'] = [l for l in st.session_state['leads_locais'] if l['id'] != lead['id']]
             salvar_memoria_local()
             st.session_state['aba_ativa'] = "Nova Venda"
@@ -372,13 +322,14 @@ if st.session_state['aba_ativa'] == "Leads":
             salvar_memoria_local()
             st.rerun()
 
-# ================= MÓDULO 2: NOVA VENDA =================
+# ================= MÓDULO 2: NOVA VENDA (RUA - SEM SENHA) =================
 elif st.session_state['aba_ativa'] == "Nova Venda":
+    qtd_rascunhos = len(st.session_state['rascunhos_locais'])
     if st.session_state['rascunhos_locais']:
-        with st.expander(f"📦 Rascunhos Salvos ({qtd_rascunhos})", expanded=False):
+        with st.expander(f"📦 Seus Rascunhos Salvos ({qtd_rascunhos})", expanded=False):
             for r in st.session_state['rascunhos_locais']:
                 rc1, rc2 = st.columns([3, 1])
-                rc1.markdown(f"**{r.get('f_nome', 'Sem Nome')}** - {r.get('f_operadora', 'Sem operadora')}")
+                rc1.markdown(f"**{r.get('f_nome', 'Sem Nome')}** - {r.get('f_operadora', 'S/ Op')}")
                 if rc2.button("Carregar Ficha", key=f"load_{r['id']}"):
                     st.session_state['form_venda_cache'] = r
                     st.session_state['rascunhos_locais'] = [x for x in st.session_state['rascunhos_locais'] if x['id'] != r['id']]
@@ -389,6 +340,7 @@ elif st.session_state['aba_ativa'] == "Nova Venda":
     cfg_campos = cfg['campos_dinamicos']
     cache = st.session_state.get('form_venda_cache', {})
 
+    # Operadora Fora do Form (A Lista de Planos Reage)
     ops = ["Selecione"] + list(st.session_state['planos_dinamicos'].keys())
     op_idx = ops.index(cache['f_operadora']) if 'f_operadora' in cache and cache['f_operadora'] in ops else 0
     operadora = st.selectbox("Operadora", ops, index=op_idx, key='sel_operadora_livre')
@@ -412,7 +364,7 @@ elif st.session_state['aba_ativa'] == "Nova Venda":
             if st.form_submit_button("Buscar CEP"):
                 resultado_cep = buscar_cep(cep)
                 if resultado_cep == "erro_conexao":
-                    m_erro("Falha de conexão ao buscar o CEP.")
+                    pass # O erro já foi mostrado na função buscar_cep
                 elif resultado_cep:
                     st.session_state['form_venda_cache'] = {
                         **cache, 'f_nome': nome, 'f_cpf': cpf, 'f_whats': whats, 'f_email': email,
@@ -440,12 +392,12 @@ elif st.session_state['aba_ativa'] == "Nova Venda":
         obs = st.text_area("Observações Internas", value=cache.get('f_obs', ''))
 
         c_sub1, c_sub2 = st.columns(2)
-        btn_salvar_rascunho = c_sub1.form_submit_button("Salvar Rascunho")
-        btn_enviar_oficial = c_sub2.form_submit_button("Finalizar e Enviar")
+        btn_salvar_rascunho = c_sub1.form_submit_button("Salvar Rascunho (Local)")
+        btn_enviar_oficial = c_sub2.form_submit_button("Finalizar e Enviar (Nuvem)")
 
         if btn_salvar_rascunho:
             dados_r = {
-                "id": gerar_chave_id('rsc'), "f_protocolo": cache.get('f_protocolo'),
+                "id": gerar_chave_local(), "f_protocolo": cache.get('f_protocolo'),
                 "f_nome": nome, "f_cpf": cpf, "f_whats": whats,
                 "f_email": email, "f_cep": cep, "f_rua": rua, "f_bairro": bairro,
                 "f_operadora": operadora, "f_plano": plano, "f_obs": obs
@@ -459,7 +411,7 @@ elif st.session_state['aba_ativa'] == "Nova Venda":
 
         if btn_enviar_oficial:
             if not nome or not cpf or operadora == "Selecione" or plano == "Selecione":
-                m_erro("Verifique os campos obrigatórios: Nome, CPF/CNPJ, Operadora e Plano.")
+                m_erro("Preencha todos os campos fundamentais: Nome, CPF/CNPJ, Operadora e Plano.")
             elif not validar_cpf_cnpj(cpf):
                 m_erro("Documento (CPF ou CNPJ) inválido.")
             elif cfg.get('pedir_email', True) and cfg.get('obrigatorio_email', True) and not email:
@@ -468,227 +420,232 @@ elif st.session_state['aba_ativa'] == "Nova Venda":
                 falhou_obrig = False
                 for chave, config_c in cfg_campos.items():
                     if config_c['ativo'] and operadora in config_c['obrig_operadoras'] and not extras.get(chave):
-                        m_erro(f"Preencha o campo: {config_c['nome']}")
+                        m_erro(f"Preencha o campo exigido pela operadora: {config_c['nome']}")
                         falhou_obrig = True
 
                 if not falhou_obrig:
-                    valor_final_plano = planos_da_op.get(plano, 0.00)
-                    
-                    protocolo = cache.get('f_protocolo', gerar_chave_id("PAP"))
-                    acao_backend = "editar" if 'f_protocolo' in cache else "inserir"
+                    # O Protocolo Oficial (Data e Hora)
+                    protocolo_oficial = gerar_protocolo()
 
                     linha_dados = {
-                        "tipo": "venda", "acao": acao_backend, "protocolo": protocolo,
+                        "tipo": "venda", "acao": "inserir", "protocolo": protocolo_oficial,
                         "nome": blindar_texto(nome), "cpf": cpf, "mae": "",
                         "email": blindar_texto(email), "whats1": blindar_texto(whats), "whats2": "",
                         "cep": blindar_texto(cep), "rua": blindar_texto(rua), "numero": "",
                         "bairro": blindar_texto(bairro), "referencia": "",
-                        "operadora": operadora, "plano": plano, "valor_plano": valor_final_plano,
+                        "operadora": operadora, "plano": plano, "valor_plano": 0,
                         "detalhes_plano": "",
                         "extra1": blindar_texto(extras.get('extra1', '')),
                         "extra2": blindar_texto(extras.get('extra2', '')),
                         "status": "Pendente", "obs": blindar_texto(obs),
                         "vendedor": st.session_state['vendedor_atual']
                     }
-                    
-                    if acao_backend == "editar":
-                        linha_dados["id_busca"] = protocolo
-                        linha_dados["coluna_busca"] = 1
-                        linha_dados["novos_dados"] = list(linha_dados.values())[3:-3]
 
-                    with st.spinner("Enviando dados para o Google Sheets..."):
+                    with st.spinner("Enviando dados seguros para o Google Sheets..."):
                         resposta = api_google(linha_dados)
 
                     if resposta and resposta.get('status') == 'sucesso':
                         st.session_state['form_venda_cache'] = {}
-                        fetch_crm()
-                        st.session_state['aba_ativa'] = "CRM"
-                        st.rerun()
+                        m_ok("Ficha enviada com sucesso para a base!")
                     else:
                         erro_msg = resposta.get('msg', 'Falha na gravação.') if resposta else "Sem resposta do servidor."
-                        m_erro(f"Erro: {erro_msg}. Salve nos rascunhos para não perder a ficha.")
+                        st.error(f"Erro: {erro_msg}. Salve nos rascunhos para não perder os dados.")
 
-# ================= MÓDULO 3: GESTÃO CRM =================
+# ================= MÓDULO 3: GESTÃO CRM (EXIGE SENHA) =================
 elif st.session_state['aba_ativa'] == "CRM":
-    st.subheader("Esteira de Vendas")
-
-    if st.button("Sincronizar Base de Dados"):
-        with st.spinner("Atualizando registros..."):
-            sucesso, erro = fetch_crm()
-        if not sucesso:
-            m_erro(f"Falha ao sincronizar: {erro}")
-
-    if not st.session_state['crm_dados']:
-        m_info("Base de dados vazia. Realize a sincronização.")
-    else:
-        cabecalho = st.session_state['crm_dados'][0]
-        linhas_raw = st.session_state['crm_dados'][1:]
-
-        if "Protocolo" not in cabecalho or "Status" not in cabecalho:
-            m_erro("A planilha retornada não tem as colunas 'Protocolo' ou 'Status'.")
-        else:
-            c_map = {nome: idx for idx, nome in enumerate(cabecalho)}
-
-            if "Vendedor" in c_map:
-                linhas = [l for l in linhas_raw if len(l) > c_map['Vendedor'] and str(l[c_map['Vendedor']]) == st.session_state['vendedor_atual']]
-            else:
-                linhas = linhas_raw
-
-            filtro_status = st.selectbox("Filtro de Status", ["Pendentes", "Leads na Nuvem", "Atenção", "Finalizadas", "Canceladas / Reprovadas"])
-            idx_valor_recebido = c_map.get('ValorRecebido', len(cabecalho))
-
-            for linha in linhas:
-                while len(linha) <= idx_valor_recebido:
-                    linha.append("")
-
-                prot = linha[c_map['Protocolo']]
-                nome_c = linha[c_map.get('Nome', 2)] if len(linha) > c_map.get('Nome', 2) else ""
-                whats_c = linha[c_map.get('Whats1', 6)] if len(linha) > c_map.get('Whats1', 6) else ""
-                op_c = linha[c_map.get('Operadora', 13)] if len(linha) > c_map.get('Operadora', 13) else ""
-                plano_c = linha[c_map.get('Plano', 14)] if len(linha) > c_map.get('Plano', 14) else ""
-
-                status_raw = str(linha[c_map['Status']]).strip()
-                status_clean = status_raw.lower()
-                data_c = str(linha[c_map.get('Data', 0)])[:10] if len(linha) > c_map.get('Data', 0) else ""
-                val_recebido = linha[idx_valor_recebido]
-
-                cor_linha, mostrar = "", False
-                if filtro_status == "Pendentes" and status_clean in ["pendente", "nova"]:
-                    mostrar = True
-                elif filtro_status == "Leads na Nuvem" and status_clean == "lead":
-                    mostrar, cor_linha = True, "lead"
-                elif filtro_status == "Atenção" and status_clean == "atenção":
-                    mostrar, cor_linha = True, "atencao"
-                elif filtro_status == "Finalizadas" and status_clean == "instalada":
-                    mostrar, cor_linha = True, "finalizada"
-                elif filtro_status == "Canceladas / Reprovadas" and status_clean in ["cancelada", "reprovada"]:
-                    mostrar, cor_linha = True, "perdida"
-
-                if mostrar:
-                    st.markdown(f'<div class="crm-row {cor_linha}">', unsafe_allow_html=True)
-                    c_info, c_act = st.columns([3, 2])
-
-                    with c_info:
-                        st.markdown(f"**{nome_c}** ({op_c})")
-                        st.caption(f"{data_c} | {whats_c} | {plano_c}")
-                        if status_clean == "instalada":
-                            st.markdown(f"Faturamento: **R$ {val_recebido}**")
-
-                    with c_act:
-                        opts_status = ["Lead", "Pendente", "Atenção", "Instalada", "Reprovada", "Cancelada"]
-                        idx_st = opts_status.index(status_raw.capitalize()) if status_raw.capitalize() in opts_status else 1
-                        novo_st = st.selectbox("Status", opts_status, index=idx_st, key=f"st_{prot}")
-
-                        novo_val = val_recebido
-                        if novo_st == "Instalada":
-                            novo_val = st.text_input("Valor Líquido (R$)", value=val_recebido, key=f"val_{prot}")
-
-                        col_b1, col_b2 = st.columns(2)
-                        if col_b1.button("Salvar", key=f"sv_{prot}"):
-                            linha[c_map['Status']] = novo_st
-                            if novo_st == "Instalada":
-                                linha[idx_valor_recebido] = blindar_texto(str(novo_val))
-
-                            payload = {
-                                "acao": "editar", "senha_api": SENHA_MESTRE_GESTAO,
-                                "id_busca": prot, "coluna_busca": c_map['Protocolo'],
-                                "novos_dados": linha
-                            }
-
-                            with st.spinner("Processando..."):
-                                resposta = api_google(payload)
-
-                            if resposta and resposta.get('status') == 'sucesso':
-                                st.toast("Atualização concluída.")
-                                fetch_crm()
-                                st.rerun()
-                            else:
-                                erro_msg = resposta.get('msg', 'Falha na gravação.') if resposta else "Sem resposta do servidor."
-                                m_erro(erro_msg)
-
-                        link_agenda = f"https://calendar.google.com/calendar/render?action=TEMPLATE&text=Retorno+{urllib.parse.quote(str(nome_c))}&details=WhatsApp:+{whats_c}"
-                        col_b2.markdown(
-                            f'<a href="{link_agenda}" target="_blank"><button style="width:100%; padding:8px; border-radius:6px; background:#2563EB; border:none; color:#FFF;">Agendar</button></a>',
-                            unsafe_allow_html=True
-                        )
-                    st.markdown('</div>', unsafe_allow_html=True)
-
-# ================= MÓDULO 4: ADMIN =================
-elif st.session_state['aba_ativa'] == "Admin":
     if not st.session_state['modo_gestao_liberado']:
-        senha = st.text_input("Senha Administrativa", type="password")
-        if st.button("Acessar"):
+        st.info("Acesso Trancado. Esta área contém dados de clientes e requer permissão.")
+        senha = st.text_input("Senha Mestre do CRM", type="password")
+        if st.button("Autenticar"):
             if senha == SENHA_MESTRE_GESTAO:
                 st.session_state['modo_gestao_liberado'] = True
                 st.rerun()
             else:
                 m_erro("Credenciais inválidas.")
     else:
-        st.subheader("Painel de Administração")
-        if st.button("Encerrar Sessão"):
+        st.subheader("Esteira de Vendas (Cofre de Dados)")
+
+        if st.button("Sincronizar Base de Dados"):
+            with st.spinner("Atualizando registros da nuvem..."):
+                sucesso, erro = fetch_crm()
+            if not sucesso:
+                st.error(f"Falha ao sincronizar: {erro}")
+            else:
+                st.session_state['hora_ultimo_sync'] = datetime.now().strftime("%H:%M")
+
+        hora_sync = st.session_state.get('hora_ultimo_sync', '--:--')
+        st.caption(f"Última sincronização: {hora_sync}")
+
+        if not st.session_state['crm_dados']:
+            m_info("Base de dados vazia. Clique em Sincronizar.")
+        else:
+            cabecalho = st.session_state['crm_dados'][0]
+            linhas_raw = st.session_state['crm_dados'][1:]
+
+            if "Protocolo" not in cabecalho or "Status" not in cabecalho:
+                st.error("A planilha retornada não tem as colunas 'Protocolo' ou 'Status'. Verifique o Google Sheets.")
+            else:
+                # Mapeamento Dinâmico por Nome de Coluna (Blindagem contra mudança de ordem)
+                c_map = {nome: idx for idx, nome in enumerate(cabecalho)}
+
+                if "Vendedor" in c_map:
+                    linhas = [l for l in linhas_raw if len(l) > c_map['Vendedor'] and str(l[c_map['Vendedor']]) == st.session_state['vendedor_atual']]
+                else:
+                    linhas = linhas_raw
+
+                # Cálculo Visual das Gavetas (SLA de Instalação Aplicado Aqui)
+                qtd_pendentes = qtd_atencao = qtd_finalizadas = 0
+                for linha_calc in linhas:
+                    while len(linha_calc) <= c_map['Status']: linha_calc.append("") # Safe pad
+                    stt_calc = str(linha_calc[c_map['Status']]).strip().lower()
+                    
+                    if stt_calc in ["pendente", "nova"]:
+                        # Regra de SLA: Mais de 3 dias Pendente -> Atenção Visual
+                        data_protocolo_str = str(linha_calc[c_map['Protocolo']])
+                        try:
+                            data_venda = datetime.strptime(data_protocolo_str, "%d/%m/%Y %H:%M:%S")
+                            dias_atraso = (datetime.now() - data_venda).days
+                            if dias_atraso >= 3:
+                                qtd_atencao += 1
+                                continue
+                        except Exception:
+                            pass # Protocolo antigo ou fora do padrão, segue normal
+                        qtd_pendentes += 1
+                        
+                    elif stt_calc == "atenção":
+                        qtd_atencao += 1
+                    elif stt_calc == "instalada":
+                        qtd_finalizadas += 1
+
+                st.markdown(f"""
+                    <div class="badge-container">
+                        <div class="badge-box"><span class="badge-num">{qtd_pendentes}</span><span class="badge-label">Pendentes</span></div>
+                        <div class="badge-box" style="border-color:#EF4444;"><span class="badge-num" style="color:#EF4444;">{qtd_atencao}</span><span class="badge-label">Atenção/Atraso</span></div>
+                        <div class="badge-box" style="border-color:#10B981;"><span class="badge-num" style="color:#10B981;">{qtd_finalizadas}</span><span class="badge-label">Finalizadas</span></div>
+                    </div>
+                """, unsafe_allow_html=True)
+
+                filtro_status = st.selectbox("Filtrar Gaveta", ["Pendentes", "Atenção / Resgate", "Finalizadas", "Arquivo Morto (Canceladas)"])
+
+                for i, linha in enumerate(linhas):
+                    # Garante que o array local seja longo o suficiente para não dar IndexError
+                    while len(linha) < len(cabecalho):
+                        linha.append("")
+
+                    prot = linha[c_map['Protocolo']]
+                    nome_c = linha[c_map.get('Nome', 2)] if 'Nome' in c_map else "Sem Nome"
+                    whats_c = linha[c_map.get('Whats1', 6)] if 'Whats1' in c_map else ""
+                    op_c = linha[c_map.get('Operadora', 13)] if 'Operadora' in c_map else ""
+                    plano_c = linha[c_map.get('Plano', 14)] if 'Plano' in c_map else ""
+                    
+                    status_raw = str(linha[c_map['Status']]).strip()
+                    status_clean = status_raw.lower()
+
+                    # Aplicação do SLA no Filtro
+                    is_atrasado = False
+                    if status_clean in ["pendente", "nova"]:
+                        try:
+                            data_venda = datetime.strptime(str(prot), "%d/%m/%Y %H:%M:%S")
+                            if (datetime.now() - data_venda).days >= 3:
+                                is_atrasado = True
+                        except Exception: pass
+
+                    cor_linha, mostrar = "", False
+                    if filtro_status == "Pendentes" and status_clean in ["pendente", "nova"] and not is_atrasado:
+                        mostrar = True
+                    elif filtro_status == "Atenção / Resgate" and (status_clean == "atenção" or is_atrasado):
+                        mostrar, cor_linha = True, "atencao"
+                    elif filtro_status == "Finalizadas" and status_clean == "instalada":
+                        mostrar, cor_linha = True, "finalizada"
+                    elif filtro_status == "Arquivo Morto (Canceladas)" and status_clean in ["cancelada", "reprovada"]:
+                        mostrar, cor_linha = True, "perdida"
+
+                    if mostrar:
+                        st.markdown(f'<div class="crm-row {cor_linha}">', unsafe_allow_html=True)
+                        c_info, c_act = st.columns([3, 2])
+
+                        with c_info:
+                            alerta = " 🚨 **ATRASADO**" if is_atrasado else ""
+                            st.markdown(f"**{nome_c}** ({op_c}){alerta}")
+                            st.caption(f"ID: {prot} | 📱 {whats_c} | 📦 {plano_c}")
+
+                        with c_act:
+                            opts_status = ["Pendente", "Atenção", "Instalada", "Reprovada", "Cancelada"]
+                            idx_st = opts_status.index(status_raw.capitalize()) if status_raw.capitalize() in opts_status else 0
+                            novo_st = st.selectbox("Ação / Status", opts_status, index=idx_st, key=f"st_{prot}")
+
+                            col_b1, col_b2 = st.columns(2)
+                            if col_b1.button("Salvar Modificação", key=f"sv_{prot}"):
+                                # Modifica via Nome da Coluna, imune a mudança de índice
+                                linha[c_map['Status']] = novo_st
+
+                                payload = {
+                                    "acao": "editar", "senha_api": SENHA_MESTRE_GESTAO,
+                                    "id_busca": prot, "coluna_busca": c_map['Protocolo'],
+                                    "novos_dados": linha
+                                }
+
+                                with st.spinner("Gravando alteração na nuvem..."):
+                                    resposta = api_google(payload)
+
+                                if resposta and resposta.get('status') == 'sucesso':
+                                    st.toast("Atualização concluída no Google Sheets.")
+                                    fetch_crm() # Atualiza espelho
+                                    st.rerun()
+                                else:
+                                    erro_msg = resposta.get('msg', 'Falha.') if resposta else "Sem resposta do servidor."
+                                    st.error(erro_msg)
+
+                            link_agenda = f"https://calendar.google.com/calendar/render?action=TEMPLATE&text=Retorno+Lead:+{urllib.parse.quote(str(nome_c))}&details=WhatsApp:+{whats_c}"
+                            col_b2.markdown(
+                                f'<a href="{link_agenda}" target="_blank"><button style="width:100%; padding:8px; border-radius:6px; background:#2563EB; border:none; color:#FFF;">⏰ Agendar Alarme</button></a>',
+                                unsafe_allow_html=True
+                            )
+                        st.markdown('</div>', unsafe_allow_html=True)
+
+# ================= MÓDULO 4: ADMIN =================
+elif st.session_state['aba_ativa'] == "Admin":
+    if not st.session_state['modo_gestao_liberado']:
+        st.info("Acesso Trancado. Insira a senha mestre.")
+        senha = st.text_input("Senha Administrativa", type="password")
+        if st.button("Acessar Administração"):
+            if senha == SENHA_MESTRE_GESTAO:
+                st.session_state['modo_gestao_liberado'] = True
+                st.rerun()
+            else:
+                st.error("Credenciais inválidas.")
+    else:
+        st.subheader("Painel de Administração Global")
+        if st.button("🔒 Trancar Cofre e Sair"):
             st.session_state['modo_gestao_liberado'] = False
             st.rerun()
 
-        tb1, tb2 = st.tabs(["Campos Customizados", "Relatórios"])
+        st.write("### Construtor de Formulário da Rua")
+        cfg = st.session_state['config_sistema']
+        ops_disponiveis = list(st.session_state['planos_dinamicos'].keys())
 
-        with tb1:
-            st.write("### Estrutura do Formulário")
-            cfg = st.session_state['config_sistema']
-            ops_disponiveis = list(st.session_state['planos_dinamicos'].keys())
+        with st.form("form_admin_campos"):
+            for chave_campo in ["extra1", "extra2"]:
+                cc = cfg['campos_dinamicos'][chave_campo]
+                st.markdown(f"**Customização de Campo: {chave_campo.upper()}**")
+                st.checkbox("Habilitar no formulário?", value=cc['ativo'], key=f"atv_{chave_campo}")
+                st.text_input("Nome do Rótulo na tela de venda", value=cc['nome'], key=f"nm_{chave_campo}")
+                st.multiselect("Obrigar preenchimento para as operadoras:", ops_disponiveis, default=cc['obrig_operadoras'], key=f"ob_{chave_campo}")
+                st.markdown("---")
 
-            with st.form("form_admin_campos"):
-                for chave_campo in ["extra1", "extra2"]:
-                    cc = cfg['campos_dinamicos'][chave_campo]
-                    st.markdown(f"**Campo: {chave_campo.upper()}**")
-                    st.checkbox("Habilitar no formulário", value=cc['ativo'], key=f"atv_{chave_campo}")
-                    st.text_input("Identificação (Rótulo)", value=cc['nome'], key=f"nm_{chave_campo}")
-                    st.multiselect("Obrigatório para as operadoras:", ops_disponiveis, default=cc['obrig_operadoras'], key=f"ob_{chave_campo}")
-                    st.markdown("---")
-
-                if st.form_submit_button("Salvar Configurações"):
-                    cfg['campos_dinamicos']['extra1'] = {
-                        'ativo': st.session_state['atv_extra1'],
-                        'nome': st.session_state['nm_extra1'],
-                        'obrig_operadoras': st.session_state['ob_extra1']
-                    }
-                    cfg['campos_dinamicos']['extra2'] = {
-                        'ativo': st.session_state['atv_extra2'],
-                        'nome': st.session_state['nm_extra2'],
-                        'obrig_operadoras': st.session_state['ob_extra2']
-                    }
-                    salvar_memoria_local()
-                    m_ok("Configurações registradas.")
-
-        with tb2:
-            st.write("### Fechamento de Vendas")
-            if st.session_state['crm_dados'] and "Status" in st.session_state['crm_dados'][0]:
-                cabecalho = st.session_state['crm_dados'][0]
-                linhas = st.session_state['crm_dados'][1:]
-                c_map = {nome: idx for idx, nome in enumerate(cabecalho)}
-                idx_valor_recebido = c_map.get('ValorRecebido', len(cabecalho))
-
-                if "Vendedor" in c_map:
-                    linhas = [l for l in linhas if len(l) > c_map['Vendedor'] and str(l[c_map['Vendedor']]) == st.session_state['vendedor_atual']]
-
-                lucro_total = 0.0
-                instaladas, perdidas = 0, 0
-
-                for l in linhas:
-                    if len(l) > c_map['Status']:
-                        stt = str(l[c_map['Status']]).strip().lower()
-                        if stt == "instalada":
-                            instaladas += 1
-                            if len(l) > idx_valor_recebido and l[idx_valor_recebido]:
-                                try:
-                                    lucro_total += float(str(l[idx_valor_recebido]).replace(',', '.'))
-                                except ValueError:
-                                    pass
-                        elif stt in ["reprovada", "cancelada"]:
-                            perdidas += 1
-
-                st.metric("Total Liquidado", f"R$ {lucro_total:.2f}")
-                c_met1, c_met2 = st.columns(2)
-                c_met1.metric("Contratos Instalados", instaladas)
-                c_met2.metric("Perdas / Cancelamentos", perdidas)
-            else:
-                m_info("Dados insuficientes. Realize a sincronização do CRM.")
+            if st.form_submit_button("Salvar Motor de Formulários"):
+                cfg['campos_dinamicos']['extra1'] = {
+                    'ativo': st.session_state['atv_extra1'],
+                    'nome': st.session_state['nm_extra1'],
+                    'obrig_operadoras': st.session_state['ob_extra1']
+                }
+                cfg['campos_dinamicos']['extra2'] = {
+                    'ativo': st.session_state['atv_extra2'],
+                    'nome': st.session_state['nm_extra2'],
+                    'obrig_operadoras': st.session_state['ob_extra2']
+                }
+                salvar_memoria_local()
+                m_ok("Regras do formulário atualizadas. A tela de Nova Venda reagirá imediatamente.")
+                
+        st.markdown("---")
+        st.markdown("*A gestão financeira de comissões/lucro não faz parte desta versão focada em CRM Operacional (SLA/Status).*")
