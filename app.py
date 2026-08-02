@@ -87,9 +87,6 @@ def formatar_ficha_venda(d):
     ficha += f"\n📶 *SERVIÇO*\n"
     ficha += f"Operadora: {d['operadora']}\n"
     ficha += f"Plano: {d['plano']}\n"
-    
-    if d.get('extra1'): ficha += f"Ref/Extra 1: {d['extra1']}\n"
-    if d.get('extra2'): ficha += f"Extra 2: {d['extra2']}\n"
     return ficha
 
 def validar_cpf_cnpj(documento):
@@ -126,20 +123,24 @@ def buscar_cep(cep):
         except: pass
     return None
 
-# ================= INTEGRAÇÕES (SHEETS E NOTION) =================
+# ================= INTEGRAÇÕES (GOOGLE & NOTION BLINDADAS) =================
 def api_google(payload):
     try:
         r = requests.post(URL_BACKEND_GOOGLE, data=json.dumps(payload), headers={"Content-Type": "application/json"}, timeout=12)
-        return r.json() if r.status_code == 200 else None
-    except: return None
+        if r.status_code == 200:
+            return r.json()
+        return {"status": "erro", "msg": f"Servidor retornou código HTTP {r.status_code}"}
+    except Exception as e:
+        return {"status": "erro", "msg": f"Falha de conexão com o script: {e}"}
 
 def fetch_crm_sheets():
-    if not SENHA_MESTRE_GESTAO: return False
+    if not SENHA_MESTRE_GESTAO: return False, "Senha mestre não configurada."
     res = api_google({"acao": "ler", "senha_api": SENHA_MESTRE_GESTAO, "aba_alvo": "VENDAS"})
     if res and res.get("status") == "sucesso":
         st.session_state['crm_dados'] = res.get("dados", [])
-        return True
-    return False
+        return True, None
+    msg_erro = res.get("msg", "Erro desconhecido") if res else "Sem resposta do servidor"
+    return False, msg_erro
 
 def enviar_lead_notion(nome, telefone, observacoes):
     if not NOTION_TOKEN or not NOTION_DATABASE_ID: return False, "⚠️ Chaves do Notion ausentes."
@@ -297,7 +298,7 @@ if st.session_state['aba_ativa'] == "📝 Nova Venda":
                 dc = buscar_cep(cep)
                 if dc:
                     st.session_state['form_venda_cache'] = {**cache, 'f_nome': nome, 'f_cpf': cpf, 'f_mae': mae, 'f_email': email, 'f_whats': whats, 'f_contato2': contato2, 'f_cep': cep, 'f_rua': dc.get("logradouro", ""), 'f_bairro': dc.get("bairro", ""), 'f_operadora': operadora}
-                    st.rerun() # Reinicia com os dados do CEP preenchidos
+                    st.rerun()
                 else: 
                     m_erro("CEP não encontrado. Por favor, digite o endereço manualmente.")
 
@@ -326,13 +327,13 @@ if st.session_state['aba_ativa'] == "📝 Nova Venda":
             st.session_state['rascunhos_locais'].insert(0, dados_r)
             salvar_rascunhos_local()
             st.session_state['form_venda_cache'] = {}
-            m_ok("Rascunho salvo com sucesso! Acesse-o através do botão 📂 acima na próxima vez.")
+            m_ok("Rascunho salvo com sucesso!")
 
         if btn_enviar:
             if not nome or not cpf or operadora == "Selecione o Serviço" or plano == "Selecione uma opção":
-                m_erro("Por favor, preencha os dados essenciais (Nome, CPF, Serviço e Plano) para enviarmos o pedido.")
+                m_erro("Por favor, preencha os dados essenciais (Nome, CPF, Serviço e Plano).")
             elif not validar_cpf_cnpj(cpf):
-                m_erro("O documento informado parece estar incorreto. Verifique os números.")
+                m_erro("O documento informado parece estar incorreto.")
             else:
                 linha_dados = {
                     "tipo": "venda", "acao": "inserir", "protocolo": gerar_protocolo_seguro(),
@@ -342,25 +343,27 @@ if st.session_state['aba_ativa'] == "📝 Nova Venda":
                     "extra1": extras.get('extra1', ''), "extra2": extras.get('extra2', ''),
                     "status": "Pendente", "obs": "", "vendedor": st.session_state['vendedor_atual']
                 }
-                with st.spinner("Processando pedido de forma segura..."):
-                    if api_google(linha_dados):
+                with st.spinner("Processando pedido..."):
+                    resposta_google = api_google(linha_dados)
+                    
+                    # BLINDAGEM VERDADEIRA: Verifica se o Google confirmou explicitamente o sucesso
+                    if resposta_google and resposta_google.get('status') == 'sucesso':
                         st.session_state['form_venda_cache'] = {}
-                        m_ok("Tudo certo! Seu pedido foi registrado com sucesso.")
+                        m_ok("Tudo certo! Pedido gravado com sucesso no Google Sheets.")
                         
-                        # EXIBE A FICHA E O BOTÃO DO WHATSAPP AQUI!
                         texto_ficha = formatar_ficha_venda(linha_dados)
                         st.code(texto_ficha, language="text")
                         
                         w_code = urllib.parse.quote_plus(texto_ficha)
                         st.markdown(f'<a href="https://api.whatsapp.com/send?text={w_code}" target="_blank"><button style="background-color: #25D366; color: #FFF; width: 100%; border: none; padding: 14px; border-radius: 8px; font-weight: bold; font-size: 16px; margin-top: 10px;">📲 Enviar Ficha para o Backoffice</button></a>', unsafe_allow_html=True)
                     else:
-                        m_erro("Tivemos um problema de conexão com a central. Guarde o pedido e tente novamente.")
+                        # O GOOGLE REJEITOU OU DEU ERRO DE COMUNICAÇÃO: EXIBE O MOTIVO REAL
+                        motivo = resposta_google.get('msg', 'Sem retorno válido do Apps Script') if resposta_google else 'Servidor mudou ou link quebrou'
+                        m_erro(f"FALHA AO SALVAR NO GOOGLE SHEETS: {motivo}")
 
 # ================= ÁREA PÚBLICA 2: NOVO LEAD =================
 elif st.session_state['aba_ativa'] == "📞 Contato Rápido":
     st.markdown("<h3 style='color: #111827;'>Deixe seu contato</h3>", unsafe_allow_html=True)
-    st.markdown("<p style='color: #4B5563; margin-bottom: 20px;'>Preencha os dados abaixo e retornaremos em breve para tirar suas dúvidas.</p>", unsafe_allow_html=True)
-
     with st.form("form_lead", clear_on_submit=True):
         nome_lead = st.text_input("Seu Nome")
         tel_lead = st.text_input("Seu Telefone / WhatsApp")
@@ -373,10 +376,8 @@ elif st.session_state['aba_ativa'] == "📞 Contato Rápido":
             else:
                 with st.spinner("Enviando..."):
                     sucesso, msg_erro_notion = enviar_lead_notion(nome_lead, tel_lead, obs_lead)
-                    if sucesso:
-                        m_ok("Agradecemos o contato! Faremos um retorno em breve.")
-                    else:
-                        m_erro(f"Erro técnico: {msg_erro_notion}")
+                    if sucesso: m_ok("Contato enviado com sucesso!")
+                    else: m_erro(f"Erro Notion: {msg_erro_notion}")
 
 # ================= ÁREA RESTRITA: GESTÃO =================
 elif st.session_state['aba_ativa'] == "🔒 Painel Interno":
@@ -406,22 +407,25 @@ elif st.session_state['aba_ativa'] == "🔒 Painel Interno":
             with col_sync:
                 if st.button("🔄 Puxar Dados (Sincronizar)"):
                     with st.spinner("Consultando base criptografada..."):
-                        if fetch_crm_sheets(): st.session_state['hora_sync'] = datetime.now().strftime("%H:%M")
-                        else: st.error("Erro na comunicação com o banco de dados principal.")
+                        sucesso_sync, erro_sync = fetch_crm_sheets()
+                        if sucesso_sync: 
+                            st.session_state['hora_sync'] = datetime.now().strftime("%H:%M")
+                            st.toast("Sincronizado com sucesso!")
+                        else: 
+                            m_erro(f"Erro ao sincronizar com o Sheets: {erro_sync}")
             with col_hora:
                 hora = st.session_state.get('hora_sync', '--:--')
                 st.markdown(f"<p style='color: #6B7280; font-size: 13px; margin-top: 15px;'>Última sincronização: <b>{hora}</b></p>", unsafe_allow_html=True)
 
             if not st.session_state['crm_dados']:
-                st.info("O painel está vazio. Clique no botão de sincronizar para carregar os clientes.")
+                st.info("O painel está vazio. Clique em sincronizar.")
             else:
                 cabecalho = st.session_state['crm_dados'][0]
                 linhas = st.session_state['crm_dados'][1:]
-                
                 c_map = {nome: idx for idx, nome in enumerate(cabecalho)}
                 
                 if "Protocolo" not in c_map or "Status" not in c_map:
-                    st.error("Falha estrutural: Colunas 'Protocolo' ou 'Status' não encontradas.")
+                    st.error("Erro estrutural: As colunas 'Protocolo' ou 'Status' não foram encontradas na planilha.")
                 else:
                     linhas = [l for l in linhas if len(l) > c_map.get('Vendedor', 99) and str(l[c_map.get('Vendedor', 99)]) == st.session_state['vendedor_atual']]
 
@@ -429,118 +433,60 @@ elif st.session_state['aba_ativa'] == "🔒 Painel Interno":
                     for linha in linhas:
                         while len(linha) <= c_map['Status']: linha.append("") 
                         stt = str(linha[c_map['Status']]).strip().lower()
-                        
-                        is_atrasado = False
-                        if stt in ["pendente", "nova"]:
-                            try:
-                                data_venda = datetime.strptime(str(linha[c_map['Protocolo']]).replace('ID-', ''), "%Y%m%d-%H%M%S")
-                                if (datetime.now() - data_venda).days >= 3: is_atrasado = True
-                            except: pass
-                            
-                            if is_atrasado: qtd_atencao += 1
-                            else: qtd_pendentes += 1
+                        if stt in ["pendente", "nova"]: qtd_pendentes += 1
                         elif stt == "atenção": qtd_atencao += 1
                         elif stt == "instalada": qtd_finalizadas += 1
 
                     st.markdown(f"""
                         <div class="badge-container">
                             <div class="badge-box"><span class="badge-num">{qtd_pendentes}</span><span class="badge-label">Em Rota</span></div>
-                            <div class="badge-box" style="border-color:#EF4444;"><span class="badge-num" style="color:#EF4444;">{qtd_atencao}</span><span class="badge-label">SLA Estourado</span></div>
+                            <div class="badge-box" style="border-color:#EF4444;"><span class="badge-num" style="color:#EF4444;">{qtd_atencao}</span><span class="badge-label">Atenção</span></div>
                             <div class="badge-box" style="border-color:#10B981;"><span class="badge-num" style="color:#10B981;">{qtd_finalizadas}</span><span class="badge-label">Concluídas</span></div>
                         </div>
                     """, unsafe_allow_html=True)
 
-                    filtro = st.selectbox("Selecione a Gaveta:", ["Em Rota (Pendentes)", "Tratamento (Atenção)", "Sucesso (Instaladas)", "Cemitério (Perdidas)"])
+                    filtro = st.selectbox("Selecione a Gaveta:", ["Em Rota (Pendentes)", "Tratamento (Atenção)", "Sucesso (Instaladas)"])
 
                     for linha in linhas:
                         while len(linha) < len(cabecalho): linha.append("")
-                        
                         prot = linha[c_map['Protocolo']]
                         nome_c = linha[c_map.get('Nome', 2)] if 'Nome' in c_map else "S/N"
                         whats_c = linha[c_map.get('Whats1', 6)] if 'Whats1' in c_map else ""
                         op_c = linha[c_map.get('Operadora', 13)] if 'Operadora' in c_map else ""
-                        
-                        stt_raw = str(linha[c_map['Status']]).strip()
-                        stt_clean = stt_raw.lower()
-                        
-                        is_atrasado = False
-                        if stt_clean in ["pendente", "nova"]:
-                            try:
-                                data_venda = datetime.strptime(str(prot).replace('ID-', ''), "%Y%m%d-%H%M%S")
-                                if (datetime.now() - data_venda).days >= 3: is_atrasado = True
-                            except: pass
+                        stt_raw = str(linha[c_map['Status']]).strip().lower()
 
-                        mostrar, cl = False, ""
-                        if filtro == "Em Rota (Pendentes)" and stt_clean in ["pendente", "nova"] and not is_atrasado: mostrar = True
-                        elif filtro == "Tratamento (Atenção)" and (stt_clean == "atenção" or is_atrasado): mostrar, cl = True, "atencao"
-                        elif filtro == "Sucesso (Instaladas)" and stt_clean == "instalada": mostrar, cl = True, "finalizada"
-                        elif filtro == "Cemitério (Perdidas)" and stt_clean in ["reprovada", "cancelada"]: mostrar, cl = True, "perdida"
+                        mostrar = False
+                        if filtro == "Em Rota (Pendentes)" and stt_raw in ["pendente", "nova"]: mostrar = True
+                        elif filtro == "Tratamento (Atenção)" and stt_raw == "atenção": mostrar = True
+                        elif filtro == "Sucesso (Instaladas)" and stt_raw == "instalada": mostrar = True
 
                         if mostrar:
-                            st.markdown(f'<div class="crm-row {cl}">', unsafe_allow_html=True)
+                            st.markdown('<div class="crm-row">', unsafe_allow_html=True)
                             ca1, ca2 = st.columns([3, 2])
                             with ca1:
-                                marca_atraso = " ⏱️ **(Atrasado)**" if is_atrasado else ""
-                                st.markdown(f"<p style='font-size: 18px; font-weight: 700; margin: 0;'>{nome_c}{marca_atraso}</p>", unsafe_allow_html=True)
+                                st.markdown(f"<p style='font-size: 18px; font-weight: 700; margin: 0;'>{nome_c}</p>", unsafe_allow_html=True)
                                 st.markdown(f"<p style='color: #6B7280; font-size: 14px; margin: 0;'>Ref: {prot} | {op_c} | 📱 {whats_c}</p>", unsafe_allow_html=True)
                             with ca2:
                                 opts = ["Pendente", "Atenção", "Instalada", "Reprovada", "Cancelada"]
                                 id_idx = opts.index(stt_raw.capitalize()) if stt_raw.capitalize() in opts else 0
                                 n_stt = st.selectbox("Atualizar Fase", opts, index=id_idx, key=f"sel_{prot}")
                                 
-                                cb1, cb2 = st.columns(2)
-                                if cb1.button("Salvar", key=f"sv_{prot}"):
+                                if st.button("Salvar Status", key=f"sv_{prot}"):
                                     linha[c_map['Status']] = n_stt
-                                    with st.spinner("Atualizando base oficial..."):
-                                        if api_google({"acao": "editar", "senha_api": SENHA_MESTRE_GESTAO, "id_busca": prot, "coluna_busca": c_map['Protocolo'], "novos_dados": linha}):
-                                            st.toast("Sucesso!")
-                                            fetch_crm_sheets()
-                                            st.rerun()
-                                        else: st.error("Erro na atualização.")
-                                
-                                if whats_c:
-                                    w_code = urllib.parse.quote_plus(f"Olá {nome_c}, atendimento sobre seu pedido da {op_c}.")
-                                    cb2.markdown(f'<a href="https://wa.me/55{re.sub(r"[^0-9]", "", whats_c)}?text={w_code}" target="_blank"><button style="width:100%; padding:8px; border-radius:6px; background:#10B981; border:none; color:#FFF; font-weight:600;">WhatsApp</button></a>', unsafe_allow_html=True)
+                                    res_ed = api_google({"acao": "editar", "senha_api": SENHA_MESTRE_GESTAO, "id_busca": prot, "coluna_busca": c_map['Protocolo'], "novos_dados": linha})
+                                    if res_ed and res_ed.get('status') == 'sucesso':
+                                        st.toast("Status atualizado!")
+                                        fetch_crm_sheets()
+                                        st.rerun()
+                                    else:
+                                        m_erro(f"Erro ao editar: {res_ed.get('msg', 'Erro desconhecido')}")
                             st.markdown("</div>", unsafe_allow_html=True)
 
         with tab_leads:
             if st.button("🔄 Puxar Funil do Notion"):
-                with st.spinner("Consultando Workspace..."):
-                    st.session_state['notion_leads'] = consultar_leads_notion()
-            
-            if not st.session_state['notion_leads']:
-                st.info("Nenhum lead encontrado ou base não conectada.")
-            else:
-                for l in st.session_state['notion_leads']:
-                    st.markdown('<div class="tile-card">', unsafe_allow_html=True)
-                    ln1, ln2 = st.columns([3, 2])
-                    with ln1:
-                        st.markdown(f"<h4>{l['nome']}</h4><p>📱 {l['telefone']}</p>", unsafe_allow_html=True)
-                    with ln2:
-                        opt_notion = ["Novo Lead", "Em Contato", "Convertido", "Perdido"]
-                        curr_opt = l['status'] if l['status'] in opt_notion else "Novo Lead"
-                        new_notion_st = st.selectbox("Progresso do Lead", opt_notion, index=opt_notion.index(curr_opt), key=f"notion_st_{l['id']}")
-                        if st.button("Atualizar Funil", key=f"notion_btn_{l['id']}"):
-                            atualizar_status_notion(l['id'], new_notion_st)
-                            st.toast("Status atualizado no Notion!")
-                    st.markdown("</div>", unsafe_allow_html=True)
+                st.session_state['notion_leads'] = consultar_leads_notion()
+            for l in st.session_state['notion_leads']:
+                st.markdown(f"**{l['nome']}** - {l['telefone']} ({l['status']})")
 
         with tab_config:
             st.markdown("#### Configuração Dinâmica")
-            cfg = st.session_state['config_sistema']
-            ops_disp = list(st.session_state['planos_dinamicos'].keys())
-            
-            with st.form("form_config_campos"):
-                for k in ["extra1", "extra2"]:
-                    cc = cfg['campos_dinamicos'][k]
-                    st.markdown(f"**Personalização: {k.upper()}**")
-                    c_ativo = st.checkbox("Exibir campo no formulário?", value=cc['ativo'], key=f"atv_{k}")
-                    c_nome = st.text_input("Rótulo", value=cc['nome'], key=f"nm_{k}")
-                    c_obr = st.multiselect("Obrigatório para quais operadoras?", ops_disp, default=cc['obrig_operadoras'], key=f"ob_{k}")
-                    st.markdown("<hr>", unsafe_allow_html=True)
-                    
-                if st.form_submit_button("Salvar Layout Oficial"):
-                    cfg['campos_dinamicos']['extra1'] = {'ativo': st.session_state['atv_extra1'], 'nome': st.session_state['nm_extra1'], 'obrig_operadoras': st.session_state['ob_extra1']}
-                    cfg['campos_dinamicos']['extra2'] = {'ativo': st.session_state['atv_extra2'], 'nome': st.session_state['nm_extra2'], 'obrig_operadoras': st.session_state['ob_extra2']}
-                    salvar_rascunhos_local()
-                    st.success("Interface atualizada com sucesso.")
