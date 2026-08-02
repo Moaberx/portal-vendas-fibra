@@ -1,113 +1,126 @@
 import streamlit as st
 import requests
-import json
 import re
 import urllib.parse
 from datetime import datetime
-from streamlit_local_storage import LocalStorage
 
-# ================= CONFIGURAÇÕES E CONSTANTES =================
+# ================= CONFIGURAÇÕES =================
 URL_BACKEND_GOOGLE = "https://script.google.com/macros/s/AKfycbyTF3qUfRvMKh5JcyxJ_rbo8fSc04n24s8y8X7wtS0nP1qVjv2nUbpQLZHmAWmpXhKJ/exec"
 
 try:
+    SENHA_MESTRE = st.secrets.get("senha_mestre_gestao", "PAP_SECRETO_2026")
     NOTION_TOKEN = st.secrets.get("notion_token")
     NOTION_DATABASE_ID = st.secrets.get("notion_database_id")
 except Exception:
+    SENHA_MESTRE = "PAP_SECRETO_2026"
     NOTION_TOKEN = None
     NOTION_DATABASE_ID = None
 
-st.set_page_config(page_title="Portal de Vendas", page_icon="📶", layout="centered")
-local_storage = LocalStorage()
+st.set_page_config(
+    page_title="Cadastro Seguro - Fibra",
+    page_icon="🔒",
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
 
-if 'init' not in st.session_state:
-    st.session_state.update({
-        'init': True,
-        'aba_ativa': "📝 Nova Venda",
-        'rascunhos_locais': [],
-        'form_venda_cache': {},
-        'planos_dinamicos': {
-            "NIO Fibra": ["500 Mega", "800 Mega"],
-            "TIM Ultrafibra": ["600 Mega", "800 Mega"],
-            "Vivo": ["Padrão"],
-            "Claro": ["Padrão"]
-        }
-    })
+# ================= CSS TEMA CLARO E CONFIÁVEL =================
+def aplicar_css():
+    st.markdown("""
+    <style>
+    .stApp { background-color: #F8FAFC; color: #1E293B; font-family: 'Inter', system-ui, sans-serif; }
+    h1, h2, h3, label { color: #0F172A !important; font-weight: 600; }
+    hr { border-color: #E2E8F0; }
+    .stTextInput>div>div>input, .stSelectbox>div>div>select, .stTextArea>div>div>textarea {
+        background: #FFFFFF !important; color: #1E293B !important;
+        border: 1px solid #CBD5E1 !important; border-radius: 10px !important; padding: 12px !important;
+    }
+    .stTextInput>div>div>input:focus { border-color: #2563EB !important; box-shadow: 0 0 0 2px rgba(37,99,235,0.2) !important; }
+    .stButton>button {
+        background: #2563EB; color: white !important; border: none; border-radius: 10px;
+        width: 100%; padding: 14px; font-weight: 600; transition: all 0.2s;
+    }
+    .stButton>button:hover { background: #1D4ED8; transform: translateY(-1px); }
+    .security-badge {
+        background: #ECFDF5; border: 1px solid #10B981; color: #065F46;
+        padding: 14px 18px; border-radius: 10px; font-weight: 600; text-align: center;
+        margin-bottom: 24px; font-size: 15px;
+    }
+    .btn-wpp {
+        display: block; background: #25D366; color: white !important; text-align: center;
+        border-radius: 10px; padding: 16px; font-weight: 700; text-decoration: none; margin-top: 16px;
+    }
+    .btn-wpp:hover { background: #1ea952; }
+    .alert-ok { background: #ECFDF5; border: 1px solid #A7F3D0; color: #065F46; padding: 14px; border-radius: 10px; font-weight: 600; margin: 12px 0; }
+    .alert-warn { background: #FFFBEB; border: 1px solid #FDE68A; color: #92400E; padding: 14px; border-radius: 10px; font-weight: 600; margin: 12px 0; }
+    .alert-err { background: #FEF2F2; border: 1px solid #FECACA; color: #991B1B; padding: 14px; border-radius: 10px; font-weight: 600; margin: 12px 0; }
+    </style>
+    """, unsafe_allow_html=True)
 
-# ================= FUNÇÕES AUXILIARES E DE MEMÓRIA =================
-def gerar_chave():
-    return f"key_{datetime.now().timestamp()}"
+# ================= FUNÇÕES AUXILIARES =================
+def gerar_protocolo():
+    return f"PAP_{datetime.now().strftime('%Y%m%d_%H%M%S%f')[:20]}"
 
-def salvar_local():
-    try:
-        dados = {"rascunhos": st.session_state['rascunhos_locais']}
-        local_storage.setItem("pap_rascunhos_v9", json.dumps(dados), key=gerar_chave())
-    except: pass
+def blindar(texto):
+    if not isinstance(texto, str):
+        return texto
+    t = texto.strip()
+    return f"'{t}" if t.startswith(('=', '+', '-', '@')) else t
 
-def carregar_local():
-    try:
-        rs = local_storage.getItem("pap_rascunhos_v9")
-        if rs:
-            dados = json.loads(rs) if isinstance(rs, str) else rs
-            if isinstance(dados, dict):
-                st.session_state['rascunhos_locais'] = dados.get('rascunhos', [])
-    except: pass
-
-if not st.session_state.get('memoria_ok'):
-    carregar_local()
-    st.session_state['memoria_ok'] = True
-
-def blindar_texto(texto):
-    if not isinstance(texto, str): return texto
-    texto_limpo = texto.strip()
-    if texto_limpo.startswith(('=', '+', '-', '@')): return f"'{texto_limpo}"
-    return texto_limpo
-
-def buscar_cep(cep):
-    cep_limpo = re.sub(r'[^0-9]', '', str(cep))
-    if len(cep_limpo) == 8:
-        try:
-            r = requests.get(f"https://viacep.com.br/ws/{cep_limpo}/json/", timeout=4)
-            if r.status_code == 200 and "erro" not in r.json():
-                return r.json()
-        except: pass
-    return None
+def limpar_formulario():
+    keys = ['f_nome', 'f_cpf', 'f_nasc', 'f_mae', 'f_email', 'f_w1', 'f_w2',
+            'f_cep', 'f_rua', 'f_num', 'f_bairro']
+    for k in keys:
+        st.session_state[k] = ""
 
 def validar_cpf(doc):
     d = re.sub(r'[^0-9]', '', str(doc))
-    return len(d) in [11, 14]
+    if len(d) != 11 or d == d[0] * 11:
+        return False
+    for i in range(9, 11):
+        s = sum(int(d[n]) * ((i + 1) - n) for n in range(i))
+        if ((s * 10) % 11) % 10 != int(d[i]):
+            return False
+    return True
+
+def buscar_cep(cep):
+    cep = re.sub(r'[^0-9]', '', str(cep))
+    if len(cep) != 8:
+        return None
+    try:
+        r = requests.get(f"https://viacep.com.br/ws/{cep}/json/", timeout=5)
+        data = r.json()
+        return data if r.status_code == 200 and "erro" not in data else None
+    except:
+        return "erro_conexao"
 
 def formatar_ficha(d):
     return f"""📄 *NOVA VENDA* 📄
 
 👤 *CLIENTE*
 Nome: {d['nome']}
-Doc: {d['cpf']}
-Mãe: {d.get('mae', 'Não informado')}
-Email: {d.get('email', 'Não informado')}
+CPF: {d['cpf']}
+Nascimento: {d['nasc']}
+Mãe: {d['mae']}
+Email: {d.get('email') or 'Não informado'}
 
 📞 *CONTATOS*
-WhatsApp: {d['whats1']}
-Contato 2: {d.get('whats2', 'Não informado')}
+WhatsApp: {d['w1']}
+2º Contato: {d.get('w2') or 'Não informado'}
 
 📍 *ENDEREÇO*
 CEP: {d['cep']}
-{d['rua']}, Nº {d['numero']} - {d['bairro']}
+{d['rua']}, Nº {d['num']} - {d['bairro']}
 
 📶 *SERVIÇO*
 Operadora: {d['operadora']}
-Plano: {d['plano']}"""
+Plano: {d['plano']}
 
-# ================= APIS COM TRATAMENTO DE FALHAS (RESILIÊNCIA) =================
-def api_google(payload):
-    try:
-        r = requests.post(URL_BACKEND_GOOGLE, json=payload, timeout=10)
-        return True if r.status_code in [200, 201] else False
-    except: 
-        return False
+Protocolo: {d.get('protocolo', '')}"""
 
-def criar_tile_notion(titulo, texto_livre):
+# ================= NOTION (CAMISA 10) =================
+def criar_notion(dados, texto):
     if not NOTION_TOKEN or not NOTION_DATABASE_ID:
-        return False, "Chaves Notion ausentes"
+        return False, "Notion não configurado"
     
     url = "https://api.notion.com/v1/pages"
     headers = {
@@ -116,203 +129,234 @@ def criar_tile_notion(titulo, texto_livre):
         "Notion-Version": "2022-06-28"
     }
     
-    data = {
+    tel = re.sub(r'[^0-9+]', '', str(dados.get('w1', '')))[:20]
+    
+    payload = {
         "parent": {"database_id": NOTION_DATABASE_ID},
         "properties": {
-            "title": { "title": [{"text": {"content": titulo[:100]}}] }
+            "Nome": {"title": [{"text": {"content": str(dados.get('nome', ''))[:100]}}]},
+            "Status": {"status": {"name": "Nova"}},
+            "Telefone": {"phone_number": tel},
+            "Data": {"date": {"start": datetime.now().strftime("%Y-%m-%d")}}
         },
-        "children": [
-            {
-                "object": "block",
-                "type": "paragraph",
-                "paragraph": {
-                    "rich_text": [{"type": "text", "text": {"content": texto_livre}}]
-                }
+        "children": [{
+            "object": "block",
+            "type": "paragraph",
+            "paragraph": {
+                "rich_text": [{"type": "text", "text": {"content": texto[:2000]}}]
             }
-        ]
+        }]
     }
     
     try:
-        resp = requests.post(url, headers=headers, json=data, timeout=8)
-        return (True, "OK") if resp.status_code == 200 else (False, resp.text)
+        r = requests.post(url, headers=headers, json=payload, timeout=10)
+        return (True, "OK") if r.status_code == 200 else (False, r.text[:300])
     except Exception as e:
         return False, str(e)
 
-# ================= ESTILO LIMPO =================
-st.markdown("""
-    <style>
-    .stApp { background-color: #F9FAFB; color: #111827; font-family: 'Segoe UI', system-ui, sans-serif; }
-    h1, h2, h3, h4, label { color: #111827 !important; }
-    .stTextInput>div>div>input, .stSelectbox>div>div>select, .stTextArea>div>div>textarea {
-        background-color: #FFFFFF !important; color: #111827 !important;
-        border: 1px solid #D1D5DB !important; border-radius: 8px !important; padding: 12px !important; font-size: 16px !important;
-    }
-    .stButton>button {
-        background-color: #2563EB; color: #FFFFFF !important; border: none; border-radius: 8px; 
-        width: 100%; padding: 14px; font-weight: 600; font-size: 15px; transition: 0.3s;
-    }
-    .stButton>button:hover { background-color: #1D4ED8; }
-    .alert-ok { background-color: #ECFDF5; border: 1px solid #A7F3D0; color: #065F46; padding: 12px; border-radius: 6px; font-weight: 600; text-align: center; margin-bottom: 10px; }
-    .alert-err { background-color: #FEF2F2; border: 1px solid #FECACA; color: #991B1B; padding: 12px; border-radius: 6px; font-weight: 600; text-align: center; margin-bottom: 10px; }
-    .alert-warn { background-color: #FFFBEB; border: 1px solid #FDE68A; color: #92400E; padding: 12px; border-radius: 6px; font-weight: 600; text-align: center; margin-bottom: 10px; }
-    </style>
-""", unsafe_allow_html=True)
+# ================= GOOGLE SHEETS (GOLEIRO) =================
+def api_sheets(payload):
+    try:
+        r = requests.post(URL_BACKEND_GOOGLE, json=payload, timeout=12)
+        return r.status_code in [200, 201] and (r.json().get("status") == "sucesso" if r.text else True)
+    except:
+        return False
 
-st.title("Portal de Vendas")
+# ================= INICIALIZAÇÃO =================
+def init_state():
+    if "init" not in st.session_state:
+        st.session_state.init = True
+        st.session_state.modo_admin = False
+        st.session_state.pedido_enviado = False
+        st.session_state.ficha_recente = ""
+        st.session_state.msg_status = ""
+        limpar_formulario()
+        
+        st.session_state.planos = {
+            "NIO Fibra": ["500 Mega - R$ 100,00", "800 Mega - R$ 135,00"],
+            "TIM Ultrafibra": ["600 Mega - R$ 119,99", "800 Mega - R$ 129,99"],
+            "Vivo": ["Padrão"],
+            "Claro": ["Padrão"]
+        }
 
-col1, col2, col3 = st.columns(3)
-if col1.button("📝 Fazer Pedido"): st.session_state['aba_ativa'] = "📝 Nova Venda"; st.rerun()
-if col2.button("📞 Contato / Alerta"): st.session_state['aba_ativa'] = "📞 Contato Rápido"; st.rerun()
-if col3.button("📂 Rascunhos"): st.session_state['aba_ativa'] = "📂 Rascunhos"; st.rerun()
+# ================= TELA DO CLIENTE =================
+def tela_cliente():
+    # Feedback pós-envio (antes de desenhar os inputs)
+    if st.session_state.pedido_enviado:
+        limpar_formulario()
+        st.markdown(f'<div class="{st.session_state.msg_status.split("|")[0]}">{st.session_state.msg_status.split("|")[1]}</div>', unsafe_allow_html=True)
+        
+        link = f"https://api.whatsapp.com/send?text={urllib.parse.quote_plus(st.session_state.ficha_recente)}"
+        st.markdown(f'<a href="{link}" target="_blank" class="btn-wpp">📲 Enviar Ficha pelo WhatsApp agora</a>', unsafe_allow_html=True)
+        st.markdown("---")
+        
+        st.session_state.pedido_enviado = False
+        st.session_state.msg_status = ""
 
-st.markdown("<hr>", unsafe_allow_html=True)
-
-# ================= ABA 1: NOVA VENDA =================
-if st.session_state['aba_ativa'] == "📝 Nova Venda":
-    cache = st.session_state.get('form_venda_cache', {})
+    st.markdown('<div class="security-badge">🔒 AMBIENTE SEGURO | Seus dados são protegidos e tratados conforme a LGPD</div>', unsafe_allow_html=True)
     
-    ops = ["Selecione"] + list(st.session_state['planos_dinamicos'].keys())
-    op_idx = ops.index(cache.get('f_operadora')) if cache.get('f_operadora') in ops else 0
-    operadora = st.selectbox("Operadora", ops, index=op_idx)
+    st.title("Cadastro de Serviço")
+    st.caption("Preencha os dados abaixo. É rápido e seguro.")
+    st.markdown("---")
+
+    # 1. Dados Pessoais
+    st.subheader("1. Dados Pessoais")
+    st.text_input("Nome Completo *", key="f_nome")
     
-    planos_disponiveis = st.session_state['planos_dinamicos'].get(operadora, []) if operadora != "Selecione" else []
+    c1, c2 = st.columns(2)
+    c1.text_input("CPF *", key="f_cpf", placeholder="Somente números")
+    c2.text_input("Data de Nascimento *", key="f_nasc", placeholder="DD/MM/AAAA")
+    
+    st.text_input("Nome completo da Mãe *", key="f_mae")
+    st.text_input("E-mail", key="f_email", placeholder="opcional")
 
-    with st.form("form_venda"):
-        st.subheader("Dados do Cliente")
-        nome = st.text_input("Nome Completo", value=cache.get('f_nome', ''))
-        cpf = st.text_input("CPF ou CNPJ", value=cache.get('f_cpf', ''))
-        mae = st.text_input("Nome da Mãe", value=cache.get('f_mae', ''))
-        email = st.text_input("E-mail", value=cache.get('f_email', ''))
-        
-        c_w1, c_w2 = st.columns(2)
-        whats1 = c_w1.text_input("WhatsApp Principal", value=cache.get('f_whats1', ''))
-        whats2 = c_w2.text_input("2º Contato (Opcional)", value=cache.get('f_whats2', ''))
+    c3, c4 = st.columns(2)
+    c3.text_input("WhatsApp Principal *", key="f_w1", placeholder="(XX) 9XXXX-XXXX")
+    c4.text_input("2º Contato (opcional)", key="f_w2")
 
-        st.subheader("Endereço")
-        c_cep, c_btn = st.columns([2, 1])
-        cep = c_cep.text_input("CEP", value=cache.get('f_cep', ''))
-        buscar_clicado = c_btn.form_submit_button("🔍 Buscar CEP")
-        
-        rua_val = cache.get('f_rua', '')
-        bairro_val = cache.get('f_bairro', '')
-        
-        if buscar_clicado:
-            dados_cep = buscar_cep(cep)
-            if dados_cep:
-                rua_val = dados_cep.get("logradouro", "")
-                bairro_val = dados_cep.get("bairro", "")
+    st.markdown("---")
 
-        rua = st.text_input("Rua / Avenida", value=rua_val)
-        c_n, c_b = st.columns([1, 2])
-        numero = c_n.text_input("Número", value=cache.get('f_numero', ''))
-        bairro = c_b.text_input("Bairro", value=bairro_val)
-
-        lista_p = ["Selecione"] + planos_disponiveis
-        pl_idx = lista_p.index(cache.get('f_plano')) if cache.get('f_plano') in lista_p else 0
-        plano = st.selectbox("Plano Desejado", lista_p, index=pl_idx)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        col_b1, col_b2 = st.columns(2)
-        btn_salvar = col_b1.form_submit_button("💾 Salvar Rascunho")
-        btn_gerar = col_b2.form_submit_button("⚡ Finalizar Venda")
-
-        if btn_salvar:
-            if not nome:
-                st.markdown('<div class="alert-err">Informe ao menos o nome.</div>', unsafe_allow_html=True)
+    # 2. Endereço
+    st.subheader("2. Endereço de Instalação")
+    c5, c6 = st.columns([3, 1])
+    with c5:
+        st.text_input("CEP *", key="f_cep", placeholder="Somente números")
+    with c6:
+        st.write("")  # espaçamento
+        if st.button("🔍 Buscar"):
+            res = buscar_cep(st.session_state.f_cep)
+            if res == "erro_conexao":
+                st.error("Falha de conexão ao buscar CEP")
+            elif res:
+                st.session_state.f_rua = res.get("logradouro", "")
+                st.session_state.f_bairro = res.get("bairro", "")
+                st.rerun()
             else:
-                novo_rascunho = {
-                    "id": gerar_chave(), "f_nome": nome, "f_cpf": cpf, "f_mae": mae,
-                    "f_email": email, "f_whats1": whats1, "f_whats2": whats2, "f_cep": cep,
-                    "f_rua": rua, "f_numero": numero, "f_bairro": bairro,
-                    "f_operadora": operadora, "f_plano": plano
-                }
-                st.session_state['rascunhos_locais'].insert(0, novo_rascunho)
-                salvar_local()
-                st.markdown('<div class="alert-ok">Rascunho salvo no celular!</div>', unsafe_allow_html=True)
+                st.error("CEP não encontrado")
 
-        if btn_gerar:
-            if not nome or not cpf or operadora == "Selecione" or plano == "Selecione":
-                st.markdown('<div class="alert-err">Preencha Nome, CPF, Operadora e Plano.</div>', unsafe_allow_html=True)
-            elif not validar_cpf(cpf):
-                st.markdown('<div class="alert-err">CPF/CNPJ incorreto.</div>', unsafe_allow_html=True)
-            else:
-                dados_ficha = {
-                    "nome": nome, "cpf": cpf, "mae": mae, "email": email,
-                    "whats1": whats1, "whats2": whats2, "cep": cep, "rua": rua,
-                    "numero": numero, "bairro": bairro, "operadora": operadora, "plano": plano
-                }
-                
-                texto_final = formatar_ficha(dados_ficha)
-                
-                # --- SISTEMA PARALELO DE ENVIO ---
-                with st.spinner("Registrando venda nos sistemas..."):
-                    # 1. Tenta Sheets
-                    payload_sheets = {
-                        "tipo": "venda", "acao": "inserir", "protocolo": f"PAP_{datetime.now().strftime('%H%M%S')}",
-                        "nome": blindar_texto(nome), "cpf": cpf, "mae": blindar_texto(mae), "email": blindar_texto(email),
-                        "whats1": blindar_texto(whats1), "whats2": blindar_texto(whats2), "cep": blindar_texto(cep),
-                        "rua": blindar_texto(rua), "numero": blindar_texto(numero), "bairro": blindar_texto(bairro),
-                        "operadora": operadora, "plano": plano, "status": "Pendente", "obs": "", "vendedor": "Portal Autônomo"
-                    }
-                    sheets_ok = api_google(payload_sheets)
-                    
-                    # 2. Tenta Notion
-                    titulo_notion = f"{nome} - {operadora}"
-                    notion_ok, msg_n = criar_tile_notion(titulo_notion, texto_final)
+    st.text_input("Rua / Logradouro *", key="f_rua")
+    c7, c8 = st.columns([1, 2])
+    c7.text_input("Número *", key="f_num")
+    c8.text_input("Bairro *", key="f_bairro")
 
-                # --- FEEDBACK RESILIENTE ---
-                if sheets_ok and notion_ok:
-                    st.markdown('<div class="alert-ok">✅ Venda salva no Google Sheets e no Notion!</div>', unsafe_allow_html=True)
-                elif sheets_ok or notion_ok:
-                    salvo_em = "Google Sheets" if sheets_ok else "Notion"
-                    falha_em = "Notion" if sheets_ok else "Google Sheets"
-                    st.markdown(f'<div class="alert-warn">⚠️ Salvo apenas no {salvo_em} (O {falha_em} apresentou instabilidade). Mas a venda está garantida!</div>', unsafe_allow_html=True)
-                else:
-                    st.markdown('<div class="alert-err">❌ Sistemas fora do ar. Use o botão do WhatsApp abaixo para enviar a ficha manualmente.</div>', unsafe_allow_html=True)
+    st.markdown("---")
 
-                # --- WHATSAPP SEMPRE DISPONÍVEL ---
-                st.code(texto_final, language="text")
-                link_wpp = f"https://api.whatsapp.com/send?text={urllib.parse.quote_plus(texto_final)}"
-                st.markdown(f'<a href="{link_wpp}" target="_blank"><button style="background-color: #25D366; color: #FFF; width: 100%; border: none; padding: 14px; border-radius: 8px; font-weight: bold; font-size: 16px; text-align: center; display: block; text-decoration: none;">📲 Enviar Ficha para o Backoffice</button></a>', unsafe_allow_html=True)
+    # 3. Serviço
+    st.subheader("3. Serviço")
+    ops = ["Selecione"] + list(st.session_state.planos.keys())
+    operadora = st.selectbox("Operadora *", ops)
+    
+    planos = st.session_state.planos.get(operadora, ["Selecione a operadora"]) if operadora != "Selecione" else ["Selecione a operadora"]
+    plano = st.selectbox("Plano *", planos)
 
-# ================= ABA 2: CONTATO / ALERTA (NOTION TILE DIRETA) =================
-elif st.session_state['aba_ativa'] == "📞 Contato Rápido":
-    st.subheader("Criar Tile de Contato / Alerta no Notion")
-    st.markdown("Escreva o que quiser abaixo. Ao enviar, vira um cartão (tile) limpo lá no seu Notion sem regras engessadas.")
-
-    with st.form("form_tile_livre"):
-        titulo_tile = st.text_input("Título do Cartão", placeholder="Ex: Retornar para João - Bairro Serra")
-        conteudo_tile = st.text_area("Anotação / Alerta / Dados Livres", placeholder="Digite livremente o que precisar lembrar ou abordar...")
+    st.write("")
+    
+    # BOTÃO FINAL
+    if st.button("✅ ENVIAR SOLICITAÇÃO", type="primary"):
+        s = st.session_state
         
-        btn_enviar_notion = st.form_submit_button("🚀 Enviar Tile para o Notion")
-        
-        if btn_enviar_notion:
-            if not titulo_tile or not conteudo_tile:
-                st.markdown('<div class="alert-err">Preencha o título e o conteúdo da tile.</div>', unsafe_allow_html=True)
+        # Validações
+        if not all([s.f_nome, s.f_cpf, s.f_nasc, s.f_mae, s.f_w1, s.f_cep, s.f_rua, s.f_num, s.f_bairro]) or operadora == "Selecione" or "Selecione" in plano:
+            st.error("Preencha todos os campos obrigatórios (*)")
+        elif not validar_cpf(s.f_cpf):
+            st.error("CPF inválido")
+        else:
+            protocolo = gerar_protocolo()
+            
+            dados = {
+                "nome": s.f_nome.strip(),
+                "cpf": s.f_cpf.strip(),
+                "nasc": s.f_nasc.strip(),
+                "mae": s.f_mae.strip(),
+                "email": s.f_email.strip(),
+                "w1": s.f_w1.strip(),
+                "w2": s.f_w2.strip(),
+                "cep": s.f_cep.strip(),
+                "rua": s.f_rua.strip(),
+                "num": s.f_num.strip(),
+                "bairro": s.f_bairro.strip(),
+                "operadora": operadora,
+                "plano": plano,
+                "protocolo": protocolo
+            }
+            
+            ficha = formatar_ficha(dados)
+            
+            # Payload Sheets
+            payload = {
+                "tipo": "venda",
+                "acao": "inserir",
+                "protocolo": protocolo,
+                "nome": blindar(dados["nome"]),
+                "cpf": dados["cpf"],
+                "mae": blindar(dados["mae"]),
+                "nascimento": blindar(dados["nasc"]),
+                "email": blindar(dados["email"]),
+                "whats1": blindar(dados["w1"]),
+                "whats2": blindar(dados["w2"]),
+                "cep": blindar(dados["cep"]),
+                "rua": blindar(dados["rua"]),
+                "numero": blindar(dados["num"]),
+                "bairro": blindar(dados["bairro"]),
+                "operadora": operadora,
+                "plano": plano,
+                "status": "Nova",
+                "obs": "",
+                "vendedor": "Cliente Autônomo"
+            }
+
+            with st.spinner("Registrando de forma segura nos sistemas..."):
+                sheets_ok = api_sheets(payload)
+                notion_ok, notion_msg = criar_notion(dados, ficha)
+
+            # Feedback resiliente
+            if sheets_ok and notion_ok:
+                status = "alert-ok|✅ Solicitação enviada com sucesso para Notion e Google Sheets!"
+            elif sheets_ok:
+                status = "alert-warn|⚠️ Salvo no Google Sheets. Notion apresentou instabilidade (mas a venda está segura)."
+            elif notion_ok:
+                status = "alert-warn|⚠️ Salvo no Notion. Google Sheets apresentou instabilidade (mas a venda está segura)."
             else:
-                with st.spinner("Criando tile no Notion..."):
-                    ok, msg = criar_tile_notion(titulo_tile, conteudo_tile)
-                    if ok:
-                        st.markdown('<div class="alert-ok">✅ Tile criada e salva com sucesso no Notion!</div>', unsafe_allow_html=True)
+                status = "alert-err|❌ Ambos os sistemas instáveis no momento. Use o botão do WhatsApp abaixo para garantir o envio."
+
+            st.session_state.pedido_enviado = True
+            st.session_state.ficha_recente = ficha
+            st.session_state.msg_status = status
+            st.rerun()
+
+# ================= ADMIN SIMPLES =================
+def tela_admin():
+    st.subheader("Painel Interno")
+    if st.button("Sair do Admin"):
+        st.session_state.modo_admin = False
+        st.rerun()
+    
+    st.info("Aqui você pode adicionar mais tarde a leitura do CRM do Sheets se quiser.")
+    st.write("Por enquanto o foco é o fluxo de venda nunca parar.")
+
+# ================= MAIN =================
+def main():
+    init_state()
+    aplicar_css()
+
+    with st.sidebar:
+        st.markdown("### 🔒 Área Restrita")
+        if not st.session_state.modo_admin:
+            with st.expander("Login Consultor"):
+                senha = st.text_input("Senha", type="password", key="senha_admin")
+                if st.button("Entrar"):
+                    if senha == SENHA_MESTRE:
+                        st.session_state.modo_admin = True
+                        st.rerun()
                     else:
-                        st.markdown(f'<div class="alert-err">⚠️ Erro ao criar tile: {msg}</div>', unsafe_allow_html=True)
+                        st.error("Senha incorreta")
+        else:
+            st.success("Logado como Admin")
 
-# ================= ABA 3: RASCUNHOS =================
-elif st.session_state['aba_ativa'] == "📂 Rascunhos":
-    st.subheader("Rascunhos no Aparelho")
-    if not st.session_state['rascunhos_locais']:
-        st.info("Nenhum rascunho salvo.")
+    if st.session_state.modo_admin:
+        tela_admin()
     else:
-        for r in list(st.session_state['rascunhos_locais']):
-            st.markdown(f"**{r.get('f_nome')}** - {r.get('f_operadora')} | Tel: {r.get('f_whats1')}")
-            c_a1, c_a2 = st.columns(2)
-            if c_a1.button("Carregar", key=f"load_{r['id']}"):
-                st.session_state['form_venda_cache'] = r
-                st.session_state['rascunhos_locais'] = [x for x in st.session_state['rascunhos_locais'] if x['id'] != r['id']]
-                salvar_local()
-                st.session_state['aba_ativa'] = "📝 Nova Venda"
-                st.rerun()
-            if c_a2.button("Excluir", key=f"del_{r['id']}"):
-                st.session_state['rascunhos_locais'] = [x for x in st.session_state['rascunhos_locais'] if x['id'] != r['id']]
-                salvar_local()
-                st.rerun()
+        tela_cliente()
+
+if __name__ == "__main__":
+    main()
